@@ -1,0 +1,432 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<title>ПУНКТ УПРАВЛЕНИЯ</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
+
+<style>
+  :root {
+    --frame-dark:   #0e1a12;
+    --frame-mid:    #1a2e1f;
+    --frame-edge:   #0a130d;
+    --chrome-hi:    #2f4a35;
+    --table-head:   #3c5230;
+    --table-head-tx:#e7e8c9;
+    --row-bg:       #eef1e2;
+    --row-bg-alt:   #e1e6d0;
+    --row-border:   #aab798;
+    --row-text:     #1c2814;
+    --btn-top:      #567a5a;
+    --btn-bot:      #2e4a33;
+    --btn-border:   #16260f 
+                    ;
+    --btn-text:     #eaffe9;
+    --text-dim:     #8fae8a;
+    --amber:        #d7c66a;
+    --red:          #c23c34;
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin:0; padding:0; height:100%;
+    font-family: Tahoma, "Segoe UI", Arial, sans-serif;
+    background: var(--frame-dark);
+    color: var(--row-text);
+  }
+
+  #map { position:absolute; top:0; left:0; right:380px; bottom:0; }
+
+  #panel {
+    position:absolute; top:0; right:0; width:380px; height:100%;
+    background: var(--frame-mid);
+    border-left: 2px solid var(--frame-edge);
+    box-shadow: -3px 0 10px rgba(0,0,0,0.5);
+    display:flex; flex-direction:column;
+    overflow:hidden;
+  }
+
+  /* ---- title bar ---- */
+  .titlebar {
+    background: linear-gradient(to bottom, #33502f, #1c2e1a);
+    border-bottom: 1px solid var(--frame-edge);
+    padding:7px 10px;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .titlebar .t {
+    font-size:12px; font-weight:700; letter-spacing:0.5px;
+    color: var(--amber); text-transform:uppercase;
+    text-shadow: 0 1px 1px rgba(0,0,0,0.6);
+  }
+  .titlebar .x {
+    width:16px; height:16px; line-height:14px; text-align:center;
+    background: linear-gradient(to bottom, #6a3230, #3d1917);
+    border:1px solid #200a09; border-radius:2px;
+    color:#f3d6d4; font-size:11px; cursor:default;
+  }
+
+  #panel-scroll { flex:1; overflow-y:auto; padding:10px; }
+
+  /* ---- toolbar buttons (Clear All / Save style) ---- */
+  .toolbar { display:flex; gap:6px; margin-bottom:10px; }
+  .toolbar button { flex:1; }
+
+  button {
+    padding:6px 8px; border-radius:3px; cursor:pointer;
+    font-family: inherit;
+    font-size:11px; font-weight:700; letter-spacing:0.2px;
+    color: var(--btn-text);
+    background: linear-gradient(to bottom, var(--btn-top), var(--btn-bot));
+    border: 1px solid var(--btn-border);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.18), 0 1px 2px rgba(0,0,0,0.5);
+    text-shadow: 0 1px 1px rgba(0,0,0,0.5);
+  }
+  button:active { box-shadow: inset 0 1px 3px rgba(0,0,0,0.6); }
+  button.wide { width:100%; margin-top:6px; }
+  button.danger { background: linear-gradient(to bottom, #a04a44, #6a2b26); }
+  button.accent { background: linear-gradient(to bottom, #3f7ea0, #234f66); font-size:12px; padding:9px; }
+
+  /* ---- section frame (like grouped panel) ---- */
+  .section {
+    border:1px solid var(--frame-edge); border-radius:3px;
+    background: var(--chrome-hi); margin-bottom:10px; overflow:hidden;
+  }
+  .section-label {
+    font-size:10px; letter-spacing:0.5px; text-transform:uppercase;
+    color: var(--table-head-tx); font-weight:700;
+    background: var(--table-head);
+    padding:5px 8px; border-bottom:1px solid var(--frame-edge);
+  }
+  .section-body { padding:8px; }
+
+  .hint {
+    font-size:10.5px; color: var(--text-dim); line-height:1.5;
+    padding:0 0 8px 0;
+  }
+
+  /* ---- move/up-down style row ---- */
+  .spin-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
+  .spin-row .lbl {
+    font-size:10.5px; color: var(--table-head-tx); white-space:nowrap;
+    background: var(--table-head); padding:5px 6px; border-radius:2px;
+    border:1px solid var(--frame-edge);
+  }
+  .spin-row input[type="number"] {
+    flex:1; padding:5px 6px; font-size:12px;
+    background: var(--row-bg); color:#1a2412;
+    border:1px solid #6d7d5e; border-radius:2px;
+  }
+  .spin-row .unit { font-size:10px; color: var(--text-dim); }
+  input[type="number"]:focus { outline:none; border-color: var(--amber); }
+
+  /* ---- data table (waypoints / queue) ---- */
+  table.data { width:100%; border-collapse:collapse; font-size:10.5px; }
+  table.data thead th {
+    background: var(--table-head); color: var(--table-head-tx);
+    font-weight:700; text-align:left; padding:4px 6px;
+    border:1px solid var(--frame-edge); font-size:10px; text-transform:uppercase;
+  }
+  table.data tbody td {
+    padding:4px 6px; border:1px solid var(--row-border);
+    background: var(--row-bg); color: var(--row-text);
+  }
+  table.data tbody tr:nth-child(even) td { background: var(--row-bg-alt); }
+  table.data tbody tr:hover td { background:#f4f7e8; }
+  .del-cell { text-align:center; cursor:pointer; color: var(--red); font-weight:700; width:20px; }
+  .table-wrap { max-height:170px; overflow-y:auto; border-top:1px solid var(--frame-edge); }
+  .table-empty { font-size:10.5px; color: var(--text-dim); font-style:italic; padding:6px; background: var(--row-bg); }
+
+  #status { font-size:10.5px; margin-top:8px; min-height:14px; color: var(--table-head-tx); }
+
+  .footer { padding:10px; border-top:1px solid var(--frame-edge); background: var(--frame-dark); }
+</style>
+</head>
+<body>
+
+<div id="map"></div>
+
+<div id="panel">
+  <div class="titlebar">
+    <div class="t">⛨ Пост управления</div>
+    <div class="x">×</div>
+  </div>
+
+  <div id="panel-scroll">
+
+    <div class="toolbar">
+      <button class="danger" id="btnClear">✖ Очистить точку</button>
+      <button class="danger" id="btnClearQueue">🗑 Очистить очередь</button>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Построение цели</div>
+      <div class="section-body">
+        <div class="hint">
+          1-й клик по карте — точка старта.<br>
+          Следующие клики — точки маршрута.
+        </div>
+
+        <div class="spin-row">
+          <span class="lbl">Скорость</span>
+          <input type="number" id="speedInput" value="350" min="0">
+          <span class="unit">км/ч</span>
+        </div>
+        <div class="spin-row">
+          <span class="lbl">Задержка</span>
+          <input type="number" id="delayInput" value="0" min="0">
+          <span class="unit">сек</span>
+        </div>
+
+        <button class="wide" id="btnUndo">↩ Отменить точку</button>
+      </div>
+
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>№</th><th>Lat</th><th>Lng</th></tr></thead>
+          <tbody id="routeTableBody"></tbody>
+        </table>
+        <div class="table-empty" id="routeEmpty">клики по карте</div>
+      </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Очередь целей (<span id="queueCount">0</span>)</div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>№</th><th>Скор.</th><th>Точ.</th><th>Задр.</th><th></th></tr></thead>
+          <tbody id="queueTableBody"></tbody>
+        </table>
+        <div class="table-empty" id="queueEmpty">очередь пуста</div>
+      </div>
+      <div class="section-body">
+        <button class="wide" id="btnAddQueue">+ Добавить в очередь</button>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    <button class="wide accent" id="btnLaunchAll">🚀 ЗАПУСТИТЬ ОЧЕРЕДЬ</button>
+    <div id="status"></div>
+  </div>
+</div>
+
+<script>
+/* ====================== Firebase ====================== */
+const firebaseConfig = {
+  apiKey: "AIzaSyBKl1yW9MFMvFTLoXj3JlRMC3kB-DujYAE",
+  authDomain: "rpvolodstrate.firebaseapp.com",
+  databaseURL: "https://rpvolodstrate-default-rtdb.europe-west1.firebasedatabase.app",
+  projectId: "rpvolodstrate",
+  storageBucket: "rpvolodstrate.firebasestorage.app",
+  messagingSenderId: "303487956762",
+  appId: "1:303487956762:web:cff2cf563c45458c4e9ea3"
+};
+firebase.initializeApp(firebaseConfig);
+const db = firebase.database();
+
+/* ====================== Карта (спутник + подписи) ====================== */
+const map = L.map('map').setView([49.0, 31.0], 6);
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 19,
+  attribution: 'Esri'
+}).addTo(map);
+
+L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+  maxZoom: 19,
+  pane: 'overlayPane'
+}).addTo(map);
+
+let spawnPoint = null;
+let routePoints = [];
+let spawnMarker = null;
+let routeMarkers = [];
+let routeLine = null;
+
+let queue = [];
+let queueLayers = [];
+
+function pinIcon(color) {
+  return L.divIcon({
+    className: '',
+    html: `<svg width="22" height="30" viewBox="0 0 22 30" xmlns="http://www.w3.org/2000/svg">
+      <path d="M11 0C4.9 0 0 4.9 0 11c0 8 11 19 11 19s11-11 11-19C22 4.9 17.1 0 11 0z" fill="${color}" stroke="#0e1712" stroke-width="1.5"/>
+      <circle cx="11" cy="11" r="4" fill="#0e1712"/>
+    </svg>`,
+    iconSize: [22, 30],
+    iconAnchor: [11, 30]
+  });
+}
+
+function redrawCurrent() {
+  routeMarkers.forEach(m => map.removeLayer(m));
+  routeMarkers = [];
+  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+
+  routePoints.forEach(pt => {
+    const m = L.marker(pt, { icon: pinIcon('#5fa6cf') }).addTo(map);
+    routeMarkers.push(m);
+  });
+
+  if (spawnPoint) {
+    const full = [spawnPoint, ...routePoints];
+    if (full.length > 1) {
+      routeLine = L.polyline(full, { color:'#e03b3b', weight:3 }).addTo(map);
+    }
+  }
+
+  const tbody = document.getElementById('routeTableBody');
+  const empty = document.getElementById('routeEmpty');
+  if (routePoints.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+  } else {
+    empty.style.display = 'none';
+    tbody.innerHTML = routePoints.map((p,i) =>
+      `<tr><td>${i+1}</td><td>${p[0].toFixed(4)}</td><td>${p[1].toFixed(4)}</td></tr>`
+    ).join('');
+  }
+}
+
+map.on('click', (e) => {
+  const latlng = [e.latlng.lat, e.latlng.lng];
+  if (!spawnPoint) {
+    spawnPoint = latlng;
+    if (spawnMarker) map.removeLayer(spawnMarker);
+    spawnMarker = L.marker(latlng, { icon: pinIcon('#4a9e6f') }).addTo(map);
+  } else {
+    routePoints.push(latlng);
+  }
+  redrawCurrent();
+});
+
+document.getElementById('btnUndo').addEventListener('click', () => {
+  if (routePoints.length > 0) routePoints.pop();
+  else if (spawnPoint) { spawnPoint = null; if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; } }
+  redrawCurrent();
+});
+
+document.getElementById('btnClear').addEventListener('click', () => {
+  spawnPoint = null; routePoints = [];
+  if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; }
+  redrawCurrent();
+});
+
+/* ====================== Очередь ====================== */
+function renderQueue() {
+  const tbody = document.getElementById('queueTableBody');
+  const empty = document.getElementById('queueEmpty');
+  document.getElementById('queueCount').textContent = queue.length;
+
+  if (queue.length === 0) {
+    tbody.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+
+  empty.style.display = 'none';
+  tbody.innerHTML = '';
+  queue.forEach((item, i) => {
+    const tr = document.createElement('tr');
+    tr.innerHTML = `
+      <td>${i+1}</td>
+      <td>${item.speed}</td>
+      <td>${item.route.length}</td>
+      <td>+${item.delay}с</td>
+      <td class="del-cell">✕</td>
+    `;
+    tr.querySelector('.del-cell').addEventListener('click', () => {
+      map.removeLayer(queueLayers[i].marker);
+      if (queueLayers[i].line) map.removeLayer(queueLayers[i].line);
+      queueLayers.splice(i, 1);
+      queue.splice(i, 1);
+      renderQueue();
+    });
+    tbody.appendChild(tr);
+  });
+}
+
+document.getElementById('btnAddQueue').addEventListener('click', () => {
+  const statusEl = document.getElementById('status');
+  if (!spawnPoint) {
+    statusEl.style.color = '#b5453f';
+    statusEl.textContent = 'Сначала поставь точку старта';
+    return;
+  }
+
+  const speed = Number(document.getElementById('speedInput').value) || 0;
+  const delay = Number(document.getElementById('delayInput').value) || 0;
+
+  queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay });
+
+  const marker = L.marker(spawnPoint, { icon: pinIcon('#3a7ea5') }).addTo(map);
+  let line = null;
+  if (routePoints.length > 0) {
+    line = L.polyline([spawnPoint, ...routePoints], { color:'#e03b3b', weight:2, opacity:0.6 }).addTo(map);
+  }
+  queueLayers.push({ marker, line });
+
+  spawnPoint = null; routePoints = [];
+  if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; }
+  redrawCurrent();
+  renderQueue();
+
+  statusEl.style.color = '#6fce97';
+  statusEl.textContent = `Добавлено в очередь (#${queue.length})`;
+});
+
+document.getElementById('btnClearQueue').addEventListener('click', () => {
+  queueLayers.forEach(l => { map.removeLayer(l.marker); if (l.line) map.removeLayer(l.line); });
+  queueLayers = [];
+  queue = [];
+  renderQueue();
+});
+
+/* ====================== Запуск очереди в Firebase ====================== */
+document.getElementById('btnLaunchAll').addEventListener('click', () => {
+  const statusEl = document.getElementById('status');
+
+  if (queue.length === 0) {
+    statusEl.style.color = '#b5453f';
+    statusEl.textContent = 'Очередь пуста — добавь хотя бы одну цель';
+    return;
+  }
+
+  statusEl.style.color = '#5fa6cf';
+  statusEl.textContent = `Отправка ${queue.length} целей...`;
+
+  const launchedAt = Date.now();
+  const writes = queue.map(item => db.ref('targets').push({
+    spawn: item.spawn,
+    speed: item.speed,
+    route: item.route,
+    delay: item.delay,
+    launchedAt: launchedAt,
+    createdAt: Date.now()
+  }));
+
+  Promise.all(writes)
+    .then(() => {
+      statusEl.style.color = '#6fce97';
+      statusEl.textContent = `✅ Запущено целей: ${queue.length}`;
+      queueLayers.forEach(l => { map.removeLayer(l.marker); if (l.line) map.removeLayer(l.line); });
+      queueLayers = [];
+      queue = [];
+      renderQueue();
+    })
+    .catch(err => {
+      statusEl.style.color = '#b5453f';
+      statusEl.textContent = '❌ Ошибка: ' + err.message;
+    });
+});
+
+renderQueue();
+</script>
+</body>
+</html>
