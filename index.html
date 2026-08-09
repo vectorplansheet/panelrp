@@ -144,6 +144,23 @@
   #status { font-size:10.5px; margin-top:8px; min-height:14px; color: var(--table-head-tx); }
 
   .footer { padding:10px; border-top:1px solid var(--frame-edge); background: var(--frame-dark); }
+
+  /* ---- scenario import ---- */
+  input[type="file"] { display:none; }
+  .drop-hint {
+    font-size:10px; color: var(--text-dim); text-align:center;
+    padding:8px; border:1px dashed #47603f; border-radius:3px; margin-top:6px;
+  }
+  .scn-list { max-height:130px; overflow-y:auto; border-top:1px solid var(--frame-edge); }
+  .scn-item {
+    display:flex; align-items:center; gap:6px;
+    padding:4px 6px; font-size:10.5px; background: var(--row-bg); color: var(--row-text);
+    border-bottom:1px solid var(--row-border);
+  }
+  .scn-item:nth-child(even) { background: var(--row-bg-alt); }
+  .scn-item .swatch { width:10px; height:10px; border-radius:50%; flex-shrink:0; border:1px solid #0006; }
+  .scn-item .trg { color:#8a5a1a; font-size:9.5px; }
+  .scn-item .idx { color: var(--text-dim); width:16px; flex-shrink:0; }
 </style>
 </head>
 <body>
@@ -182,6 +199,16 @@
           <span class="unit">сек</span>
         </div>
 
+        <div class="spin-row">
+          <span class="lbl">Исчезнуть на точке №</span>
+          <input type="number" id="vanishFromInput" min="1" placeholder="—">
+        </div>
+        <div class="spin-row">
+          <span class="lbl">Появиться на точке №</span>
+          <input type="number" id="vanishToInput" min="2" placeholder="—">
+        </div>
+        <div class="hint" style="padding-top:0">необязательно: цель пропадёт, дойдя до первой точки, и появится заново как новая цель на второй (например 3 → 6). Оставь поля пустыми, если не нужно.</div>
+
         <button class="wide" id="btnUndo">↩ Отменить точку</button>
       </div>
 
@@ -192,6 +219,16 @@
         </table>
         <div class="table-empty" id="routeEmpty">клики по карте</div>
       </div>
+    </div>
+
+    <div class="section">
+      <div class="section-label">Импорт сценария (Scenario Builder)</div>
+      <div class="section-body">
+        <button class="wide accent" id="btnImportScenario">📂 Импортировать JSON и запустить в эфир</button>
+        <input type="file" id="scenarioFileInput" accept=".json">
+        <div class="drop-hint">файл, экспортированный из scenary.html — все цели (с маршрутами, задержками и триггерами) уйдут в Firebase сразу и начнут проигрываться в index.html</div>
+      </div>
+      <div class="scn-list" id="scnList"></div>
     </div>
 
     <div class="section">
@@ -230,6 +267,14 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
+/* ---- геоутилиты: нужны для расчёта времени "невидимого" перелёта между точками ---- */
+const toRad = x => x * Math.PI / 180;
+function haversine(a, b, c, d) {
+  const R = 6371000, dLa = toRad(c - a), dLo = toRad(d - b);
+  const x = Math.sin(dLa / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dLo / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
+}
+
 /* ====================== Карта (спутник + подписи) ====================== */
 const map = L.map('map').setView([49.0, 31.0], 6);
 
@@ -248,6 +293,8 @@ let routePoints = [];
 let spawnMarker = null;
 let routeMarkers = [];
 let routeLine = null;
+let vanishLine = null;
+let vanishMarks = [];
 
 let queue = [];
 let queueLayers = [];
@@ -264,10 +311,23 @@ function pinIcon(color) {
   });
 }
 
+function getVanishRange() {
+  const fromEl = document.getElementById('vanishFromInput');
+  const toEl = document.getElementById('vanishToInput');
+  const from = Number(fromEl.value);
+  const to = Number(toEl.value);
+  if (!from || !to) return null; // хотя бы одно поле пустое — вариант не задан
+  if (from < 1 || to <= from || to > routePoints.length) return null; // некорректный диапазон
+  return { from, to };
+}
+
 function redrawCurrent() {
   routeMarkers.forEach(m => map.removeLayer(m));
   routeMarkers = [];
   if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
+  if (vanishLine) { map.removeLayer(vanishLine); vanishLine = null; }
+  vanishMarks.forEach(m => map.removeLayer(m));
+  vanishMarks = [];
 
   routePoints.forEach(pt => {
     const m = L.marker(pt, { icon: pinIcon('#5fa6cf') }).addTo(map);
@@ -278,6 +338,21 @@ function redrawCurrent() {
     const full = [spawnPoint, ...routePoints];
     if (full.length > 1) {
       routeLine = L.polyline(full, { color:'#e03b3b', weight:3 }).addTo(map);
+    }
+
+    // визуализация диапазона исчезновения, если задан и валиден
+    const vr = getVanishRange();
+    if (vr) {
+      const hiddenSeg = full.slice(vr.from, vr.to + 1); // точки с №from по №to включительно
+      vanishLine = L.polyline(hiddenSeg, { color:'#8899a6', weight:3, dashArray:'2,7', opacity:0.85 }).addTo(map);
+      const vanishPt = full[vr.from];
+      const reappearPt = full[vr.to];
+      vanishMarks.push(L.marker(vanishPt, {
+        icon: L.divIcon({ className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#c23c34;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;line-height:1">✕</div>', iconSize:[16,16], iconAnchor:[8,8] })
+      }).addTo(map));
+      vanishMarks.push(L.marker(reappearPt, {
+        icon: L.divIcon({ className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#4a9e6f;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;line-height:1">✚</div>', iconSize:[16,16], iconAnchor:[8,8] })
+      }).addTo(map));
     }
   }
 
@@ -293,6 +368,9 @@ function redrawCurrent() {
     ).join('');
   }
 }
+
+document.getElementById('vanishFromInput').addEventListener('input', redrawCurrent);
+document.getElementById('vanishToInput').addEventListener('input', redrawCurrent);
 
 map.on('click', (e) => {
   const latlng = [e.latlng.lat, e.latlng.lng];
@@ -334,10 +412,11 @@ function renderQueue() {
   tbody.innerHTML = '';
   queue.forEach((item, i) => {
     const tr = document.createElement('tr');
+    const vanishTag = item._vanish ? ` <span style="color:#5a6a78" title="исчезает на т.${item._vanish.from}, появляется на т.${item._vanish.to}">👻${item._vanish.from}→${item._vanish.to}</span>` : '';
     tr.innerHTML = `
       <td>${i+1}</td>
       <td>${item.speed}</td>
-      <td>${item.route.length}</td>
+      <td>${item.route.length}${vanishTag}</td>
       <td>+${item.delay}с</td>
       <td class="del-cell">✕</td>
     `;
@@ -363,7 +442,34 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
   const speed = Number(document.getElementById('speedInput').value) || 0;
   const delay = Number(document.getElementById('delayInput').value) || 0;
 
-  queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay });
+  const vr = getVanishRange();
+  let finalRoute = routePoints.slice();
+  let triggers = [];
+
+  if (vr) {
+    const full = [spawnPoint, ...routePoints];
+    // основной маршрут обрывается точно на точке исчезновения (from) — цель "заканчивается" там и пропадает
+    finalRoute = routePoints.slice(0, vr.from);
+
+    // считаем расстояние "невидимого" перелёта от точки исчезновения до точки появления
+    let hiddenDist = 0;
+    for (let i = vr.from; i < vr.to; i++) {
+      hiddenDist += haversine(full[i][0], full[i][1], full[i+1][0], full[i+1][1]);
+    }
+    const speedMs = (speed * 1000) / 3600;
+    const hiddenSec = speedMs > 0 ? hiddenDist / speedMs : 0;
+
+    triggers.push({
+      wpIndex: vr.from,          // срабатывает, когда цель дошла до точки-исчезновения
+      speed: speed,              // летит с той же скоростью
+      delay: hiddenSec,          // ...столько секунд, сколько заняло бы пройти скрытый участок
+      color: '#8899a6',
+      spawn: full[vr.to],                  // появляется как НОВАЯ цель на точке-появления
+      route: routePoints.slice(vr.to)      // и продолжает маршрут дальше
+    });
+  }
+
+  queue.push({ spawn: spawnPoint, route: finalRoute, speed, delay, triggers, _vanish: vr });
 
   const marker = L.marker(spawnPoint, { icon: pinIcon('#3a7ea5') }).addTo(map);
   let line = null;
@@ -373,6 +479,8 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
   queueLayers.push({ marker, line });
 
   spawnPoint = null; routePoints = [];
+  document.getElementById('vanishFromInput').value = '';
+  document.getElementById('vanishToInput').value = '';
   if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; }
   redrawCurrent();
   renderQueue();
@@ -402,14 +510,28 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
   statusEl.textContent = `Отправка ${queue.length} целей...`;
 
   const launchedAt = Date.now();
-  const writes = queue.map(item => db.ref('targets').push({
-    spawn: item.spawn,
-    speed: item.speed,
-    route: item.route,
-    delay: item.delay,
-    launchedAt: launchedAt,
-    createdAt: Date.now()
-  }));
+  const writes = queue.map(item => {
+    const ref = db.ref('targets').push({
+      spawn: item.spawn,
+      speed: item.speed,
+      route: item.route,
+      delay: item.delay,
+      spawnDelay: item.delay,
+      triggers: item.triggers || [],
+      launchedAt: launchedAt,
+      createdAt: Date.now()
+    });
+    // самоочистка: удаляем запись из Firebase через (задержка цели + задержка триггера, если есть + 5с) после отправки,
+    // чтобы база не разрасталась — данные к этому моменту уже прочитаны index.html
+    const trigExtra = (item.triggers && item.triggers.length)
+      ? Math.max(...item.triggers.map(t => Number(t.delay) || 0))
+      : 0;
+    const cleanupMs = ((Number(item.delay) || 0) + trigExtra) * 1000 + 5000;
+    ref.then(r => {
+      setTimeout(() => { r.remove().catch(() => {}); }, cleanupMs);
+    });
+    return ref;
+  });
 
   Promise.all(writes)
     .then(() => {
@@ -427,6 +549,117 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
 });
 
 renderQueue();
+
+/* ====================== Импорт сценария из Scenario Builder → сразу в Firebase ====================== */
+
+function renderScenarioList(targets) {
+  const list = document.getElementById('scnList');
+  if (!targets || !targets.length) { list.innerHTML = ''; return; }
+  list.innerHTML = targets.map((t, i) => {
+    const trg = (t.triggers && t.triggers.length) ? `<span class="trg">⚡${t.triggers.length}</span>` : '';
+    const delay = Number(t.spawnDelay) || 0;
+    return `<div class="scn-item">
+      <span class="idx">${i + 1}</span>
+      <span class="swatch" style="background:${t.color || '#ff4444'}"></span>
+      <span style="flex:1">${t.speed} км/ч, точек: ${(t.route || []).length}</span>
+      <span>+${delay}с</span> ${trg}
+    </div>`;
+  }).join('');
+}
+
+document.getElementById('btnImportScenario').addEventListener('click', () => {
+  document.getElementById('scenarioFileInput').click();
+});
+
+document.getElementById('scenarioFileInput').addEventListener('change', (ev) => {
+  const file = ev.target.files[0];
+  ev.target.value = '';
+  if (!file) return;
+
+  const statusEl = document.getElementById('status');
+  const reader = new FileReader();
+
+  reader.onload = () => {
+    let json;
+    try {
+      json = JSON.parse(reader.result);
+    } catch (e) {
+      statusEl.style.color = '#b5453f';
+      statusEl.textContent = '❌ Неверный JSON: ' + e.message;
+      return;
+    }
+
+    if (!json || !Array.isArray(json.targets) || !json.targets.length) {
+      statusEl.style.color = '#b5453f';
+      statusEl.textContent = '❌ В файле нет поля targets или он пуст';
+      return;
+    }
+
+    renderScenarioList(json.targets);
+
+    statusEl.style.color = '#5fa6cf';
+    statusEl.textContent = `Отправка сценария (${json.targets.length} целей) в эфир...`;
+
+    const launchedAt = Date.now();
+
+    const writes = json.targets.map(t => {
+      const spawn = Array.isArray(t.spawn) ? [Number(t.spawn[0]), Number(t.spawn[1])] : null;
+      const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1])]) : [];
+      const speed = Number(t.speed) || 0;
+      const spawnDelay = Number(t.spawnDelay) || 0;
+      const triggers = Array.isArray(t.triggers) ? t.triggers.map(tr => ({
+        wpIndex: Number(tr.wpIndex) || 0,
+        speed: Number(tr.speed) || 450,
+        delay: Number(tr.delay) || 12,
+        color: tr.color || '#ff9f43',
+        spawn: Array.isArray(tr.spawn) ? [Number(tr.spawn[0]), Number(tr.spawn[1])] : null,
+        route: Array.isArray(tr.route) ? tr.route.map(p => [Number(p[0]), Number(p[1])]) : []
+      })) : [];
+
+      if (!spawn) return Promise.resolve(null); // пропускаем битые записи
+
+      const ref = db.ref('targets').push({
+        spawn,
+        route,
+        speed,
+        spawnDelay,
+        delay: spawnDelay, // для обратной совместимости со старым index.html, который читает поле delay
+        color: t.color || '#ff4444',
+        triggers,
+        launchedAt,
+        createdAt: Date.now()
+      });
+
+      // самоочистка: удаляем запись из Firebase через (задержка цели + 5с) после отправки.
+      // Триггеры срабатывают позже (спустя время долёта до точки), но это не влияет на
+      // корректность удаления — index.html уже забирает весь объект (включая triggers)
+      // в момент события child_added, дальше играет по локально сохранённым данным.
+      const cleanupMs = spawnDelay * 1000 + 5000;
+      ref.then(r => {
+        setTimeout(() => { r.remove().catch(() => {}); }, cleanupMs);
+      });
+
+      return ref;
+    });
+
+    Promise.all(writes)
+      .then(() => {
+        statusEl.style.color = '#6fce97';
+        statusEl.textContent = `✅ Сценарий запущен: ${json.targets.length} целей отправлено в эфир`;
+      })
+      .catch(err => {
+        statusEl.style.color = '#b5453f';
+        statusEl.textContent = '❌ Ошибка отправки: ' + err.message;
+      });
+  };
+
+  reader.onerror = () => {
+    statusEl.style.color = '#b5453f';
+    statusEl.textContent = '❌ Не удалось прочитать файл';
+  };
+
+  reader.readAsText(file);
+});
 </script>
 </body>
 </html>
