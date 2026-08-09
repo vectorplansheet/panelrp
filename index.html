@@ -199,16 +199,6 @@
           <span class="unit">сек</span>
         </div>
 
-        <div class="spin-row">
-          <span class="lbl">Исчезнуть на точке №</span>
-          <input type="number" id="vanishFromInput" min="1" placeholder="—">
-        </div>
-        <div class="spin-row">
-          <span class="lbl">Появиться на точке №</span>
-          <input type="number" id="vanishToInput" min="2" placeholder="—">
-        </div>
-        <div class="hint" style="padding-top:0">необязательно: цель пропадёт, дойдя до первой точки, и появится заново как новая цель на второй (например 3 → 6). Оставь поля пустыми, если не нужно.</div>
-
         <button class="wide" id="btnUndo">↩ Отменить точку</button>
       </div>
 
@@ -267,14 +257,6 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-/* ---- геоутилиты: нужны для расчёта времени "невидимого" перелёта между точками ---- */
-const toRad = x => x * Math.PI / 180;
-function haversine(a, b, c, d) {
-  const R = 6371000, dLa = toRad(c - a), dLo = toRad(d - b);
-  const x = Math.sin(dLa / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dLo / 2) ** 2;
-  return 2 * R * Math.atan2(Math.sqrt(x), Math.sqrt(1 - x));
-}
-
 /* ====================== Карта (спутник + подписи) ====================== */
 const map = L.map('map').setView([49.0, 31.0], 6);
 
@@ -293,8 +275,6 @@ let routePoints = [];
 let spawnMarker = null;
 let routeMarkers = [];
 let routeLine = null;
-let vanishLine = null;
-let vanishMarks = [];
 
 let queue = [];
 let queueLayers = [];
@@ -311,23 +291,10 @@ function pinIcon(color) {
   });
 }
 
-function getVanishRange() {
-  const fromEl = document.getElementById('vanishFromInput');
-  const toEl = document.getElementById('vanishToInput');
-  const from = Number(fromEl.value);
-  const to = Number(toEl.value);
-  if (!from || !to) return null; // хотя бы одно поле пустое — вариант не задан
-  if (from < 1 || to <= from || to > routePoints.length) return null; // некорректный диапазон
-  return { from, to };
-}
-
 function redrawCurrent() {
   routeMarkers.forEach(m => map.removeLayer(m));
   routeMarkers = [];
   if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
-  if (vanishLine) { map.removeLayer(vanishLine); vanishLine = null; }
-  vanishMarks.forEach(m => map.removeLayer(m));
-  vanishMarks = [];
 
   routePoints.forEach(pt => {
     const m = L.marker(pt, { icon: pinIcon('#5fa6cf') }).addTo(map);
@@ -338,21 +305,6 @@ function redrawCurrent() {
     const full = [spawnPoint, ...routePoints];
     if (full.length > 1) {
       routeLine = L.polyline(full, { color:'#e03b3b', weight:3 }).addTo(map);
-    }
-
-    // визуализация диапазона исчезновения, если задан и валиден
-    const vr = getVanishRange();
-    if (vr) {
-      const hiddenSeg = full.slice(vr.from, vr.to + 1); // точки с №from по №to включительно
-      vanishLine = L.polyline(hiddenSeg, { color:'#8899a6', weight:3, dashArray:'2,7', opacity:0.85 }).addTo(map);
-      const vanishPt = full[vr.from];
-      const reappearPt = full[vr.to];
-      vanishMarks.push(L.marker(vanishPt, {
-        icon: L.divIcon({ className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#c23c34;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;line-height:1">✕</div>', iconSize:[16,16], iconAnchor:[8,8] })
-      }).addTo(map));
-      vanishMarks.push(L.marker(reappearPt, {
-        icon: L.divIcon({ className:'', html:'<div style="width:16px;height:16px;border-radius:50%;background:#4a9e6f;border:2px solid #fff;display:flex;align-items:center;justify-content:center;font-size:10px;color:#fff;line-height:1">✚</div>', iconSize:[16,16], iconAnchor:[8,8] })
-      }).addTo(map));
     }
   }
 
@@ -368,9 +320,6 @@ function redrawCurrent() {
     ).join('');
   }
 }
-
-document.getElementById('vanishFromInput').addEventListener('input', redrawCurrent);
-document.getElementById('vanishToInput').addEventListener('input', redrawCurrent);
 
 map.on('click', (e) => {
   const latlng = [e.latlng.lat, e.latlng.lng];
@@ -412,11 +361,10 @@ function renderQueue() {
   tbody.innerHTML = '';
   queue.forEach((item, i) => {
     const tr = document.createElement('tr');
-    const vanishTag = item._vanish ? ` <span style="color:#5a6a78" title="исчезает на т.${item._vanish.from}, появляется на т.${item._vanish.to}">👻${item._vanish.from}→${item._vanish.to}</span>` : '';
     tr.innerHTML = `
       <td>${i+1}</td>
       <td>${item.speed}</td>
-      <td>${item.route.length}${vanishTag}</td>
+      <td>${item.route.length}</td>
       <td>+${item.delay}с</td>
       <td class="del-cell">✕</td>
     `;
@@ -442,34 +390,7 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
   const speed = Number(document.getElementById('speedInput').value) || 0;
   const delay = Number(document.getElementById('delayInput').value) || 0;
 
-  const vr = getVanishRange();
-  let finalRoute = routePoints.slice();
-  let triggers = [];
-
-  if (vr) {
-    const full = [spawnPoint, ...routePoints];
-    // основной маршрут обрывается точно на точке исчезновения (from) — цель "заканчивается" там и пропадает
-    finalRoute = routePoints.slice(0, vr.from);
-
-    // считаем расстояние "невидимого" перелёта от точки исчезновения до точки появления
-    let hiddenDist = 0;
-    for (let i = vr.from; i < vr.to; i++) {
-      hiddenDist += haversine(full[i][0], full[i][1], full[i+1][0], full[i+1][1]);
-    }
-    const speedMs = (speed * 1000) / 3600;
-    const hiddenSec = speedMs > 0 ? hiddenDist / speedMs : 0;
-
-    triggers.push({
-      wpIndex: vr.from,          // срабатывает, когда цель дошла до точки-исчезновения
-      speed: speed,              // летит с той же скоростью
-      delay: hiddenSec,          // ...столько секунд, сколько заняло бы пройти скрытый участок
-      color: '#8899a6',
-      spawn: full[vr.to],                  // появляется как НОВАЯ цель на точке-появления
-      route: routePoints.slice(vr.to)      // и продолжает маршрут дальше
-    });
-  }
-
-  queue.push({ spawn: spawnPoint, route: finalRoute, speed, delay, triggers, _vanish: vr });
+  queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay });
 
   const marker = L.marker(spawnPoint, { icon: pinIcon('#3a7ea5') }).addTo(map);
   let line = null;
@@ -479,8 +400,6 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
   queueLayers.push({ marker, line });
 
   spawnPoint = null; routePoints = [];
-  document.getElementById('vanishFromInput').value = '';
-  document.getElementById('vanishToInput').value = '';
   if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; }
   redrawCurrent();
   renderQueue();
@@ -517,16 +436,12 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
       route: item.route,
       delay: item.delay,
       spawnDelay: item.delay,
-      triggers: item.triggers || [],
       launchedAt: launchedAt,
       createdAt: Date.now()
     });
-    // самоочистка: удаляем запись из Firebase через (задержка цели + задержка триггера, если есть + 5с) после отправки,
+    // самоочистка: удаляем запись из Firebase через (задержка цели + 5с) после отправки,
     // чтобы база не разрасталась — данные к этому моменту уже прочитаны index.html
-    const trigExtra = (item.triggers && item.triggers.length)
-      ? Math.max(...item.triggers.map(t => Number(t.delay) || 0))
-      : 0;
-    const cleanupMs = ((Number(item.delay) || 0) + trigExtra) * 1000 + 5000;
+    const cleanupMs = (Number(item.delay) || 0) * 1000 + 5000;
     ref.then(r => {
       setTimeout(() => { r.remove().catch(() => {}); }, cleanupMs);
     });
