@@ -110,6 +110,17 @@
   }
 
   /* ---- move/up-down style row ---- */
+  .template-row { display:flex; flex-wrap:wrap; gap:5px; margin-bottom:8px; }
+  .template-btn {
+    flex:1 1 calc(50% - 5px); min-width:70px; padding:5px 4px; font-size:10.5px;
+    border:1px solid var(--frame-edge); border-radius:3px; cursor:pointer;
+    background: linear-gradient(to bottom, var(--btn-top), var(--btn-bot));
+    color: var(--btn-text); text-align:center; line-height:1.3;
+  }
+  .template-btn .tpl-range { display:block; font-size:9px; opacity:0.75; }
+  .template-btn:active { filter:brightness(1.15); }
+  .template-btn.active { outline:2px solid #ffcf3d; outline-offset:-2px; }
+
   .spin-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .spin-row .lbl {
     font-size:10.5px; color: var(--table-head-tx); white-space:nowrap;
@@ -145,22 +156,36 @@
 
   .footer { padding:10px; border-top:1px solid var(--frame-edge); background: var(--frame-dark); }
 
-  /* ---- scenario import ---- */
-  input[type="file"] { display:none; }
-  .drop-hint {
-    font-size:10px; color: var(--text-dim); text-align:center;
-    padding:8px; border:1px dashed #47603f; border-radius:3px; margin-top:6px;
+  .coord-search {
+    display:flex; background: var(--frame-mid); border:1px solid var(--frame-edge);
+    border-radius:3px; overflow:hidden; box-shadow:0 1px 4px rgba(0,0,0,0.5);
   }
-  .scn-list { max-height:130px; overflow-y:auto; border-top:1px solid var(--frame-edge); }
-  .scn-item {
-    display:flex; align-items:center; gap:6px;
-    padding:4px 6px; font-size:10.5px; background: var(--row-bg); color: var(--row-text);
-    border-bottom:1px solid var(--row-border);
+  .coord-search input {
+    border:none; outline:none; padding:6px 8px; font-size:11px; width:170px;
+    background: var(--row-bg); color:#1a2412;
   }
-  .scn-item:nth-child(even) { background: var(--row-bg-alt); }
-  .scn-item .swatch { width:10px; height:10px; border-radius:50%; flex-shrink:0; border:1px solid #0006; }
-  .scn-item .trg { color:#8a5a1a; font-size:9.5px; }
-  .scn-item .idx { color: var(--text-dim); width:16px; flex-shrink:0; }
+  .coord-search button {
+    border:none; border-radius:0; padding:6px 10px; font-size:13px;
+    background: linear-gradient(to bottom, var(--btn-top), var(--btn-bot));
+    color: var(--btn-text); cursor:pointer;
+  }
+  .leaflet-control-layers {
+    background: var(--frame-mid) !important; color: var(--row-text) !important;
+    border:1px solid var(--frame-edge) !important; font-size:11px !important;
+  }
+  .leaflet-control-layers label { color: #eef1e2 !important; }
+
+  /* ---- подпись типа дрона над движущимся маркером цели ---- */
+  .live-drone-label {
+    position:absolute; left:50%; top:0; transform:translateX(-50%);
+    white-space:nowrap; pointer-events:none;
+    background: #000000;
+    color:#f1e6b0;
+    font-size:10px; font-weight:700; letter-spacing:0.2px;
+    padding:2px 6px;
+  }
+  body.labels-hidden .live-drone-label { display:none; }
+
 </style>
 </head>
 <body>
@@ -179,6 +204,12 @@
       <button class="danger" id="btnClear">✖ Очистить точку</button>
       <button class="danger" id="btnClearQueue">🗑 Очистить очередь</button>
     </div>
+    <div class="toolbar">
+      <button class="wide" id="btnToggleLive">👁 Скрыть цели</button>
+    </div>
+    <div class="toolbar">
+      <button class="wide" id="btnToggleLabels">🏷 Скрыть подписи</button>
+    </div>
 
     <div class="section">
       <div class="section-label">Построение цели</div>
@@ -186,6 +217,14 @@
         <div class="hint">
           1-й клик по карте — точка старта.<br>
           Следующие клики — точки маршрута.
+        </div>
+
+        <div class="template-row" id="targetTemplates">
+          <button type="button" class="template-btn" data-min="150" data-max="170" data-type="Гербера" data-icon="Gerbera.png">Гербера<span class="tpl-range">150–170 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="180" data-max="200" data-type="Герань-2" data-icon="Geran-2.png">Герань-2<span class="tpl-range">180–200 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="300" data-max="370" data-type="Герань-3" data-icon="Geran-3.png">Герань-3<span class="tpl-range">300–370 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="400" data-max="430" data-type="Герань-4" data-icon="Geran-4.png">Герань-4<span class="tpl-range">400–430 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="500" data-max="550" data-type="Герань-5" data-icon="Geran-5.png">Герань-5<span class="tpl-range">500–550 км/ч</span></button>
         </div>
 
         <div class="spin-row">
@@ -212,20 +251,10 @@
     </div>
 
     <div class="section">
-      <div class="section-label">Импорт сценария (Scenario Builder)</div>
-      <div class="section-body">
-        <button class="wide accent" id="btnImportScenario">📂 Импортировать JSON и запустить в эфир</button>
-        <input type="file" id="scenarioFileInput" accept=".json">
-        <div class="drop-hint">файл, экспортированный из scenary.html — все цели (с маршрутами, задержками и триггерами) уйдут в Firebase сразу и начнут проигрываться в index.html</div>
-      </div>
-      <div class="scn-list" id="scnList"></div>
-    </div>
-
-    <div class="section">
       <div class="section-label">Очередь целей (<span id="queueCount">0</span>)</div>
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>№</th><th>Скор.</th><th>Точ.</th><th>Задр.</th><th></th></tr></thead>
+          <thead><tr><th>№</th><th>Тип</th><th>Скор.</th><th>Точ.</th><th>Задр.</th><th></th></tr></thead>
           <tbody id="queueTableBody"></tbody>
         </table>
         <div class="table-empty" id="queueEmpty">очередь пуста</div>
@@ -257,24 +286,110 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-/* ====================== Карта (спутник + подписи) ====================== */
+/* ====================== Карта (спутник / OSM + переключатель слоёв + поиск координат) ====================== */
 const map = L.map('map').setView([49.0, 31.0], 6);
 
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-  maxZoom: 19,
-  attribution: 'Esri'
-}).addTo(map);
+const satBase = L.layerGroup([
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    attribution: 'Esri'
+  }),
+  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+    maxZoom: 19,
+    pane: 'overlayPane'
+  })
+]).addTo(map);
 
-L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
+const osmBase = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
-  pane: 'overlayPane'
-}).addTo(map);
+  attribution: '&copy; OpenStreetMap'
+});
+
+L.control.layers({
+  'Супутник': satBase,
+  'OSM (карта)': osmBase
+}, null, { position: 'topleft', collapsed: false }).addTo(map);
+
+/* ---- поиск по координатам ---- */
+const CoordSearch = L.Control.extend({
+  options: { position: 'topleft' },
+  onAdd: function() {
+    const wrap = L.DomUtil.create('div', 'leaflet-bar coord-search');
+    wrap.innerHTML = `
+      <input type="text" id="coordSearchInput" placeholder="напр. 50.4501, 30.5234">
+      <button id="coordSearchBtn" type="button">🔎</button>
+    `;
+    L.DomEvent.disableClickPropagation(wrap);
+    L.DomEvent.disableScrollPropagation(wrap);
+    return wrap;
+  }
+});
+map.addControl(new CoordSearch());
+
+let coordSearchMarker = null;
+function parseCoordString(str) {
+  if (!str) return null;
+  const cleaned = str.trim().replace(/[;]/g, ',').replace(/\s+/g, ' ');
+  const m = cleaned.match(/(-?\d+(?:\.\d+)?)[,\s]+(-?\d+(?:\.\d+)?)/);
+  if (!m) return null;
+  const lat = parseFloat(m[1]), lng = parseFloat(m[2]);
+  if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+  return [lat, lng];
+}
+function runCoordSearch() {
+  const input = document.getElementById('coordSearchInput');
+  const statusEl = document.getElementById('status');
+  const pt = parseCoordString(input.value);
+  if (!pt) {
+    if (statusEl) { statusEl.style.color = '#b5453f'; statusEl.textContent = '❌ Формат координат: lat, lng'; }
+    return;
+  }
+  if (coordSearchMarker) map.removeLayer(coordSearchMarker);
+  coordSearchMarker = L.marker(pt, {
+    icon: L.divIcon({
+      className: '',
+      html: `<div style="width:16px;height:16px;border-radius:50%;background:#ffcf3d;border:2px solid #10190f;box-shadow:0 0 6px #ffcf3d;"></div>`,
+      iconSize: [16, 16], iconAnchor: [8, 8]
+    })
+  }).addTo(map);
+  map.setView(pt, 14);
+  if (statusEl) { statusEl.style.color = '#6fce97'; statusEl.textContent = `📍 Найдено: ${pt[0].toFixed(5)}, ${pt[1].toFixed(5)}`; }
+}
+document.addEventListener('click', (e) => {
+  if (e.target && e.target.id === 'coordSearchBtn') runCoordSearch();
+});
+document.addEventListener('keydown', (e) => {
+  if (e.target && e.target.id === 'coordSearchInput' && e.key === 'Enter') runCoordSearch();
+});
 
 let spawnPoint = null;
 let routePoints = [];
 let spawnMarker = null;
 let routeMarkers = [];
 let routeLine = null;
+
+/* ---- шаблоны целей: подставляют случайную скорость из диапазона + запоминают тип/иконку дрона ---- */
+let selectedTargetType = null;
+let selectedTargetIcon = null;
+
+document.querySelectorAll('#targetTemplates .template-btn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const min = Number(btn.dataset.min) || 0;
+    const max = Number(btn.dataset.max) || min;
+    const speed = Math.round(min + Math.random() * (max - min));
+    const speedInput = document.getElementById('speedInput');
+    speedInput.value = speed;
+    document.querySelectorAll('#targetTemplates .template-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    selectedTargetType = btn.dataset.type || null;
+    selectedTargetIcon = btn.dataset.icon || null;
+  });
+});
+document.getElementById('speedInput').addEventListener('input', () => {
+  document.querySelectorAll('#targetTemplates .template-btn').forEach(b => b.classList.remove('active'));
+  selectedTargetType = null;
+  selectedTargetIcon = null;
+});
 
 let queue = [];
 let queueLayers = [];
@@ -363,6 +478,7 @@ function renderQueue() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${i+1}</td>
+      <td>${item.type || '—'}</td>
       <td>${item.speed}</td>
       <td>${item.route.length}</td>
       <td>+${item.delay}с</td>
@@ -390,7 +506,7 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
   const speed = Number(document.getElementById('speedInput').value) || 0;
   const delay = Number(document.getElementById('delayInput').value) || 0;
 
-  queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay });
+  queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay, type: selectedTargetType, icon: selectedTargetIcon });
 
   const marker = L.marker(spawnPoint, { icon: pinIcon('#3a7ea5') }).addTo(map);
   let line = null;
@@ -436,6 +552,8 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
       route: item.route,
       delay: item.delay,
       spawnDelay: item.delay,
+      type: item.type || null,
+      icon: item.icon || null,
       launchedAt: launchedAt,
       createdAt: Date.now()
     });
@@ -465,116 +583,245 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
 
 renderQueue();
 
-/* ====================== Импорт сценария из Scenario Builder → сразу в Firebase ====================== */
+/* ====================== Живая трансляция целей на карте ПУ (в реальном времени) ======================
+   Идея: не опрашивать сервер раз в минуту, а один раз получить полное описание цели
+   (точка старта, маршрут, скорость, время запуска) и дальше КАЖДЫЙ кадр (через
+   requestAnimationFrame) самостоятельно вычислять, где цель должна быть прямо сейчас,
+   по формуле "пройденное расстояние = скорость × время с момента запуска".
+   Это тот же принцип, что уже использует index.html — поэтому обе карты идут в идеальной
+   синхронизации, без задержек и без лишнего трафика с сервера. */
+(function() {
+  const liveMarkers = {};
+  const panelStartTime = Date.now();
 
-function renderScenarioList(targets) {
-  const list = document.getElementById('scnList');
-  if (!targets || !targets.length) { list.innerHTML = ''; return; }
-  list.innerHTML = targets.map((t, i) => {
-    const trg = (t.triggers && t.triggers.length) ? `<span class="trg">⚡${t.triggers.length}</span>` : '';
-    const delay = Number(t.spawnDelay) || 0;
-    return `<div class="scn-item">
-      <span class="idx">${i + 1}</span>
-      <span class="swatch" style="background:${t.color || '#ff4444'}"></span>
-      <span style="flex:1">${t.speed} км/ч, точек: ${(t.route || []).length}</span>
-      <span>+${delay}с</span> ${trg}
-    </div>`;
-  }).join('');
-}
+  // отдельный слой для живых целей — чтобы одной кнопкой прятать/показывать их все разом
+  const liveLayer = L.layerGroup().addTo(map);
+  let liveVisible = true;
 
-document.getElementById('btnImportScenario').addEventListener('click', () => {
-  document.getElementById('scenarioFileInput').click();
-});
-
-document.getElementById('scenarioFileInput').addEventListener('change', (ev) => {
-  const file = ev.target.files[0];
-  ev.target.value = '';
-  if (!file) return;
-
-  const statusEl = document.getElementById('status');
-  const reader = new FileReader();
-
-  reader.onload = () => {
-    let json;
-    try {
-      json = JSON.parse(reader.result);
-    } catch (e) {
-      statusEl.style.color = '#b5453f';
-      statusEl.textContent = '❌ Неверный JSON: ' + e.message;
-      return;
-    }
-
-    if (!json || !Array.isArray(json.targets) || !json.targets.length) {
-      statusEl.style.color = '#b5453f';
-      statusEl.textContent = '❌ В файле нет поля targets или он пуст';
-      return;
-    }
-
-    renderScenarioList(json.targets);
-
-    statusEl.style.color = '#5fa6cf';
-    statusEl.textContent = `Отправка сценария (${json.targets.length} целей) в эфир...`;
-
-    const launchedAt = Date.now();
-
-    const writes = json.targets.map(t => {
-      const spawn = Array.isArray(t.spawn) ? [Number(t.spawn[0]), Number(t.spawn[1])] : null;
-      const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1])]) : [];
-      const speed = Number(t.speed) || 0;
-      const spawnDelay = Number(t.spawnDelay) || 0;
-      const triggers = Array.isArray(t.triggers) ? t.triggers.map(tr => ({
-        wpIndex: Number(tr.wpIndex) || 0,
-        speed: Number(tr.speed) || 450,
-        delay: Number(tr.delay) || 12,
-        color: tr.color || '#ff9f43',
-        spawn: Array.isArray(tr.spawn) ? [Number(tr.spawn[0]), Number(tr.spawn[1])] : null,
-        route: Array.isArray(tr.route) ? tr.route.map(p => [Number(p[0]), Number(p[1])]) : []
-      })) : [];
-
-      if (!spawn) return Promise.resolve(null); // пропускаем битые записи
-
-      const ref = db.ref('targets').push({
-        spawn,
-        route,
-        speed,
-        spawnDelay,
-        delay: spawnDelay, // для обратной совместимости со старым index.html, который читает поле delay
-        color: t.color || '#ff4444',
-        triggers,
-        launchedAt,
-        createdAt: Date.now()
-      });
-
-      // самоочистка: удаляем запись из Firebase через (задержка цели + 5с) после отправки.
-      // Триггеры срабатывают позже (спустя время долёта до точки), но это не влияет на
-      // корректность удаления — index.html уже забирает весь объект (включая triggers)
-      // в момент события child_added, дальше играет по локально сохранённым данным.
-      const cleanupMs = spawnDelay * 1000 + 5000;
-      ref.then(r => {
-        setTimeout(() => { r.remove().catch(() => {}); }, cleanupMs);
-      });
-
-      return ref;
+  const toggleBtn = document.getElementById('btnToggleLive');
+  function updateToggleBtn() {
+    if (!toggleBtn) return;
+    toggleBtn.textContent = liveVisible ? '👁 Скрыть цели' : '👁‍🗨 Показать цели';
+  }
+  if (toggleBtn) {
+    toggleBtn.addEventListener('click', () => {
+      liveVisible = !liveVisible;
+      if (liveVisible) liveLayer.addTo(map);
+      else map.removeLayer(liveLayer);
+      updateToggleBtn();
     });
+    updateToggleBtn();
+  }
 
-    Promise.all(writes)
-      .then(() => {
-        statusEl.style.color = '#6fce97';
-        statusEl.textContent = `✅ Сценарий запущен: ${json.targets.length} целей отправлено в эфир`;
-      })
-      .catch(err => {
-        statusEl.style.color = '#b5453f';
-        statusEl.textContent = '❌ Ошибка отправки: ' + err.message;
+  // переключатель подписей с названием дрона над маркерами (сами иконки/треугольники остаются)
+  let labelsVisible = true;
+  const toggleLabelsBtn = document.getElementById('btnToggleLabels');
+  function updateToggleLabelsBtn() {
+    if (!toggleLabelsBtn) return;
+    toggleLabelsBtn.textContent = labelsVisible ? '🏷 Скрыть подписи' : '🏷 Показать подписи';
+  }
+  if (toggleLabelsBtn) {
+    toggleLabelsBtn.addEventListener('click', () => {
+      labelsVisible = !labelsVisible;
+      document.body.classList.toggle('labels-hidden', !labelsVisible);
+      updateToggleLabelsBtn();
+    });
+    updateToggleLabelsBtn();
+  }
+
+  // чёрный треугольник, острие смотрит на север (0°) — поворачиваем по фактическому курсу
+  // используется для целей без распознанного типа дрона (без шаблона)
+  function triangleIcon() {
+    return L.divIcon({
+      className: '',
+      html: `<div class="live-rot" style="width:26px;height:26px;transform:rotate(0deg);">
+               <svg viewBox="0 0 26 26" width="26" height="26" xmlns="http://www.w3.org/2000/svg">
+                 <polygon points="13,1 24,24 13,18 2,24" fill="#000000" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/>
+               </svg>
+             </div>`,
+      iconSize: [26, 26],
+      iconAnchor: [13, 13]
+    });
+  }
+
+  function escapeHtml(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  // иконка распознанного дрона (Geran-2.png, Geran-3.png, Geran-4.png, Geran-5.png, Gerbera.png) —
+  // чёрный силуэт с белой обводкой (drop-shadow-обводка вокруг PNG с прозрачным фоном),
+  // поворачивается по курсу, а над ней держится неповорачивающаяся полупрозрачная рамка с названием дрона
+  const DRONE_ICON_SIZE = 30;
+  const DRONE_LABEL_H = 18;
+  const DRONE_GAP = 3;
+  const DRONE_WRAP_W = 110;
+  const DRONE_WRAP_H = DRONE_LABEL_H + DRONE_GAP + DRONE_ICON_SIZE;
+
+  function droneIcon(iconFile, label) {
+    const labelHtml = label
+      ? `<div class="live-drone-label">${escapeHtml(label)}</div>`
+      : '';
+    return L.divIcon({
+      className: '',
+      html: `<div style="position:relative; width:${DRONE_WRAP_W}px; height:${DRONE_WRAP_H}px; pointer-events:none;">
+               ${labelHtml}
+               <div class="live-rot" style="position:absolute; left:50%; top:${DRONE_LABEL_H + DRONE_GAP}px; width:${DRONE_ICON_SIZE}px; height:${DRONE_ICON_SIZE}px; margin-left:${-DRONE_ICON_SIZE/2}px; transform:rotate(0deg);">
+                 <img src="${iconFile}" width="${DRONE_ICON_SIZE}" height="${DRONE_ICON_SIZE}"
+                   style="display:block; width:100%; height:100%;" />
+               </div>
+             </div>`,
+      iconSize: [DRONE_WRAP_W, DRONE_WRAP_H],
+      iconAnchor: [DRONE_WRAP_W / 2, DRONE_LABEL_H + DRONE_GAP + DRONE_ICON_SIZE / 2]
+    });
+  }
+
+  // выбор иконки: если у цели известен файл иконки дрона — рисуем её (с подписью),
+  // иначе — обычный чёрный треугольник без подписи
+  function pickTargetIcon(type, iconFile) {
+    if (iconFile) return droneIcon(iconFile, type);
+    return triangleIcon();
+  }
+
+  function bearingDeg(a, b) {
+    const toRad = x => x * Math.PI / 180, toDeg = x => x * 180 / Math.PI;
+    const lat1 = toRad(a.lat), lat2 = toRad(b.lat), dLon = toRad(b.lng - a.lng);
+    const y = Math.sin(dLon) * Math.cos(lat2);
+    const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(dLon);
+    return (toDeg(Math.atan2(y, x)) + 360) % 360;
+  }
+
+  function buildGeo(spawn, route) {
+    const pts = [spawn, ...(Array.isArray(route) ? route : [])];
+    const segs = [];
+    let total = 0;
+    for (let i = 0; i < pts.length - 1; i++) {
+      const a = L.latLng(pts[i][0], pts[i][1]);
+      const b = L.latLng(pts[i + 1][0], pts[i + 1][1]);
+      const d = a.distanceTo(b);
+      segs.push({ a, b, d, from: total, brng: bearingDeg(a, b) });
+      total += d;
+    }
+    return { pts, segs, total };
+  }
+
+  // возвращает {lat, lng, heading}
+  function positionAt(geo, distM) {
+    const last = geo.pts[geo.pts.length - 1];
+    if (geo.segs.length === 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: 0 };
+    if (distM <= 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: geo.segs[0].brng };
+    if (distM >= geo.total) {
+      const s = geo.segs[geo.segs.length - 1];
+      return { lat: last[0], lng: last[1], heading: s.brng };
+    }
+    for (const s of geo.segs) {
+      if (distM <= s.from + s.d) {
+        const t = s.d > 0 ? (distM - s.from) / s.d : 0;
+        return { lat: s.a.lat + (s.b.lat - s.a.lat) * t, lng: s.a.lng + (s.b.lng - s.a.lng) * t, heading: s.brng };
+      }
+    }
+    const s = geo.segs[geo.segs.length - 1];
+    return { lat: last[0], lng: last[1], heading: s.brng };
+  }
+
+  const UPDATE_INTERVAL_MS = 1000; // обновление позиции каждую секунду
+
+  function spawnLiveTarget(key, spawn, route, speedKmh, launchAtMs, type, iconFile) {
+    if (liveMarkers[key]) return;
+    const geo = buildGeo(spawn, route);
+    const speedMps = (Number(speedKmh) || 0) / 3.6;
+    const marker = L.marker(spawn, { icon: pickTargetIcon(type, iconFile), zIndexOffset: 1000 }).addTo(liveLayer);
+    const state = { marker, geo, speedMps, launchAtMs, timer: null };
+    liveMarkers[key] = state;
+
+    function applyRotation(deg) {
+      const el = marker.getElement();
+      if (!el) return;
+      const rot = el.querySelector('.live-rot');
+      if (rot) rot.style.transform = `rotate(${deg}deg)`;
+    }
+
+    function tick() {
+      if (!liveMarkers[key]) return;
+      // позиция считается от реального прошедшего времени — поэтому даже раз в минуту
+      // цель оказывается ровно там, где должна быть по факту, без накопления ошибки
+      const elapsedS = (Date.now() - state.launchAtMs) / 1000;
+      if (elapsedS < 0) { state.timer = setTimeout(tick, UPDATE_INTERVAL_MS); return; }
+      const distM = elapsedS * state.speedMps;
+      const pos = positionAt(geo, distM);
+      marker.setLatLng([pos.lat, pos.lng]);
+      applyRotation(pos.heading);
+      if (distM >= geo.total) {
+        // цель дошла до конца маршрута — держим маркер ещё немного и убираем
+        state.timer = setTimeout(() => {
+          if (liveMarkers[key]) { liveLayer.removeLayer(liveMarkers[key].marker); delete liveMarkers[key]; }
+        }, 15000);
+        return;
+      }
+      state.timer = setTimeout(tick, UPDATE_INTERVAL_MS);
+    }
+    tick();
+  }
+
+  function removeLiveTarget(key) {
+    const st = liveMarkers[key];
+    if (!st) return;
+    if (st.timer) clearTimeout(st.timer);
+    liveLayer.removeLayer(st.marker);
+    delete liveMarkers[key];
+  }
+
+  // удаление цели на index.html (в режиме "удалить объект") пишет сюда ключ —
+  // убираем соответствующий маркер и на карте ПУ
+  db.ref('targetDeletes').on('child_added', function(snapshot) {
+    console.log('[SYNC] получено событие удаления, ключ =', snapshot.key, 'есть в liveMarkers:', !!liveMarkers[snapshot.key]);
+    removeLiveTarget(snapshot.key);
+  });
+
+  db.ref('targets').on('child_added', function(snapshot) {
+    const t = snapshot.val();
+    if (!t || !t.createdAt || t.createdAt < panelStartTime) return;
+
+    const spawn = Array.isArray(t.spawn) ? [Number(t.spawn[0]), Number(t.spawn[1])] : null;
+    if (!spawn || !isFinite(spawn[0]) || !isFinite(spawn[1])) return;
+    const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1])]) : [];
+    const speed = Number(t.speed) || 0;
+    const spawnDelayMs = Math.max(0, (Number(t.spawnDelay ?? t.delay) || 0) * 1000);
+    const baseAt = Number(t.launchedAt) || t.createdAt;
+    const launchAtMs = baseAt + spawnDelayMs;
+
+    spawnLiveTarget(snapshot.key, spawn, route, speed, launchAtMs, t.type || null, t.icon || null);
+
+    if (Array.isArray(t.triggers) && t.triggers.length) {
+      const R = 6371000;
+      const toRad = x => x * Math.PI / 180;
+      function hvs(a, b, c, d) {
+        const dLa = toRad(c - a), dLo = toRad(d - b);
+        const xx = Math.sin(dLa / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dLo / 2) ** 2;
+        return 2 * R * Math.atan2(Math.sqrt(xx), Math.sqrt(1 - xx));
+      }
+      const allPts = [spawn, ...route];
+
+      t.triggers.forEach(function(trig, ti) {
+        const trigSpawn = Array.isArray(trig.spawn) ? [Number(trig.spawn[0]), Number(trig.spawn[1])] : null;
+        if (!trigSpawn) return;
+        const trigRoute = Array.isArray(trig.route) ? trig.route.map(p => [Number(p[0]), Number(p[1])]) : [];
+        const trigWpIndex = Number(trig.wpIndex) || 0;
+        const trigSpeed = Number(trig.speed) || 450;
+        const trigDelay = Number(trig.delay) || 12;
+
+        let distM = 0;
+        const endIdx = Math.min(trigWpIndex, allPts.length - 1);
+        for (let i = 0; i < endIdx; i++) distM += hvs(allPts[i][0], allPts[i][1], allPts[i + 1][0], allPts[i + 1][1]);
+
+        const planeSpeedMs = (speed * 1000) / 3600;
+        const timeToWpMs = planeSpeedMs > 0 ? (distM / planeSpeedMs) * 1000 : 0;
+        const trigLaunchAt = launchAtMs + timeToWpMs + trigDelay * 1000;
+
+        spawnLiveTarget(snapshot.key + '_trig' + ti, trigSpawn, trigRoute, trigSpeed, trigLaunchAt);
       });
-  };
-
-  reader.onerror = () => {
-    statusEl.style.color = '#b5453f';
-    statusEl.textContent = '❌ Не удалось прочитать файл';
-  };
-
-  reader.readAsText(file);
-});
+    }
+  });
+})();
 </script>
 </body>
 </html>
