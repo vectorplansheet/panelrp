@@ -102,6 +102,17 @@
     background: var(--table-head);
     padding:5px 8px; border-bottom:1px solid var(--frame-edge);
   }
+  .section-label.collapsible {
+    cursor:pointer; user-select:none;
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  .section-label.collapsible .arrow {
+    display:inline-block; transition: transform 0.15s ease;
+    font-size:9px; margin-left:6px;
+  }
+  .section.collapsed .section-label.collapsible .arrow { transform: rotate(-90deg); }
+  .section.collapsed > .section-body,
+  .section.collapsed > .table-wrap { display:none; }
   .section-body { padding:8px; }
 
   .hint {
@@ -175,16 +186,35 @@
   }
   .leaflet-control-layers label { color: #eef1e2 !important; }
 
-  /* ---- подпись типа дрона над движущимся маркером цели ---- */
+  /* ---- подпись под движущимся маркером цели: тип, борт, скорость ---- */
   .live-drone-label {
+    position:absolute; left:50%; transform:translateX(-50%);
+    white-space:nowrap; pointer-events:none;
+    background: rgba(255,255,255,0.6);
+    color:#0e0e0e;
+    font-size:10.5px; font-weight:700; letter-spacing:0.2px;
+    padding:2px 6px; border-radius:2px;
+    text-align:center; line-height:1.3;
+  }
+  body.labels-hidden .live-drone-label { display:none; }
+
+  /* подсказка браузеру заранее подготовить слой под трансформацию —
+     меньше перерасчётов layout/paint при повороте сотен маркеров */
+  .live-rot { will-change: transform; }
+
+  /* ---- плановые (статические) цели — пин-маркер + подпись сверху ---- */
+  .planned-label {
     position:absolute; left:50%; top:0; transform:translateX(-50%);
     white-space:nowrap; pointer-events:none;
-    background: #000000;
-    color:#f1e6b0;
+    background:#000000; color:#ffd6d2;
     font-size:10px; font-weight:700; letter-spacing:0.2px;
     padding:2px 6px;
   }
-  body.labels-hidden .live-drone-label { display:none; }
+  body.planned-labels-hidden .planned-label { display:none; }
+  #btnPickOnMap { flex:0 0 auto; padding:5px 9px; font-size:13px; }
+  #btnPickOnMap.picking { outline:2px solid #ffcf3d; outline-offset:-2px; }
+  #plannedTableBody tr { cursor:pointer; }
+  #plannedTableBody tr td:last-child { cursor:pointer; }
 
 </style>
 </head>
@@ -261,6 +291,41 @@
       </div>
       <div class="section-body">
         <button class="wide" id="btnAddQueue">+ Добавить в очередь</button>
+      </div>
+    </div>
+
+    <div class="section" id="plannedSection">
+      <div class="section-label collapsible" id="plannedSectionHeader">
+        <span>Плановые цели (<span id="plannedCount">0</span>/200)</span>
+        <span class="arrow">▾</span>
+      </div>
+      <div class="section-body">
+        <div class="hint">
+          Координаты вручную (<b>lat, lng</b>) или кнопкой 📍 —<br>
+          затем клик по карте. Подпись — по желанию.
+        </div>
+        <div class="spin-row">
+          <span class="lbl">Коорд.</span>
+          <input type="text" id="plannedCoordInput" placeholder="50.4501, 30.5234">
+          <button type="button" id="btnPickOnMap" title="Указать точку кликом по карте">📍</button>
+        </div>
+        <div class="spin-row">
+          <span class="lbl">Подпись</span>
+          <input type="text" id="plannedLabelInput" placeholder="напр. Позиция 1" maxlength="40">
+        </div>
+        <button class="wide" id="btnAddPlanned">+ Добавить плановую цель</button>
+        <div class="toolbar" style="margin-top:8px;">
+          <button id="btnTogglePlanned">👁 Скрыть метки</button>
+          <button id="btnTogglePlannedLabels">🏷 Скрыть подписи</button>
+        </div>
+        <button class="wide danger" id="btnClearPlanned" style="margin-top:6px;">🗑 Очистить все плановые цели</button>
+      </div>
+      <div class="table-wrap">
+        <table class="data">
+          <thead><tr><th>№</th><th>Подпись</th><th>Коорд.</th><th></th></tr></thead>
+          <tbody id="plannedTableBody"></tbody>
+        </table>
+        <div class="table-empty" id="plannedEmpty">меток нет</div>
       </div>
     </div>
 
@@ -437,6 +502,8 @@ function redrawCurrent() {
 }
 
 map.on('click', (e) => {
+  // режим "указать точку кликом" для плановых целей (см. секцию ниже) забирает клик себе
+  if (typeof window.handlePlannedMapClick === 'function' && window.handlePlannedMapClick(e)) return;
   const latlng = [e.latlng.lat, e.latlng.lng];
   if (!spawnPoint) {
     spawnPoint = latlng;
@@ -583,6 +650,203 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
 
 renderQueue();
 
+/* ====================== Плановые (статические) цели на карте ======================
+   Это просто метки-ориентиры, которые оператор ставит сам по известным координатам —
+   без анимации и без сети. Ни одного таймера на маркер, поэтому даже 200 меток
+   практически не создают нагрузки — на порядок легче, чем "живые" цели. */
+(function() {
+  const MAX_PLANNED = 200;
+  const plannedLayer = L.layerGroup().addTo(map);
+  const planned = []; // { id, lat, lng, label, marker }
+  let plannedVisible = true;
+  let plannedLabelsVisible = true;
+  let plannedPickMode = false;
+  let nextPlannedId = 1;
+
+  function escapeHtmlPlanned(s) {
+    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  }
+
+  // тот же силуэт пина, что и у точек маршрута (pinIcon), только в красном цвете
+  // и с подписью сверху — просто маркер, а не точка
+  const PIN_W = 14, PIN_H = 19, LABEL_H = 16, GAP = 2, WRAP_W = 130;
+  const WRAP_H = LABEL_H + GAP + PIN_H;
+
+  function plannedIcon(label) {
+    const labelHtml = label ? `<div class="planned-label">${escapeHtmlPlanned(label)}</div>` : '';
+    return L.divIcon({
+      className: '',
+      html: `<div style="position:relative; width:${WRAP_W}px; height:${WRAP_H}px; pointer-events:none;">
+               ${labelHtml}
+               <svg width="${PIN_W}" height="${PIN_H}" viewBox="0 0 22 30" xmlns="http://www.w3.org/2000/svg"
+                    style="position:absolute; left:50%; top:${LABEL_H + GAP}px; margin-left:${-PIN_W / 2}px;">
+                 <path d="M11 0C4.9 0 0 4.9 0 11c0 8 11 19 11 19s11-11 11-19C22 4.9 17.1 0 11 0z" fill="#e0362f" stroke="#2a0705" stroke-width="1.5"/>
+                 <circle cx="11" cy="11" r="4" fill="#2a0705"/>
+               </svg>
+             </div>`,
+      iconSize: [WRAP_W, WRAP_H],
+      iconAnchor: [WRAP_W / 2, LABEL_H + GAP + PIN_H]
+    });
+  }
+
+  function renderPlannedTable() {
+    const tbody = document.getElementById('plannedTableBody');
+    const empty = document.getElementById('plannedEmpty');
+    document.getElementById('plannedCount').textContent = planned.length;
+    if (planned.length === 0) {
+      tbody.innerHTML = '';
+      empty.style.display = 'block';
+      return;
+    }
+    empty.style.display = 'none';
+    tbody.innerHTML = '';
+    planned.forEach((p, i) => {
+      const tr = document.createElement('tr');
+      tr.title = 'Клик — перейти к метке на карте';
+      tr.innerHTML = `
+        <td>${i + 1}</td>
+        <td>${escapeHtmlPlanned(p.label || '—')}</td>
+        <td>${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</td>
+        <td class="del-cell" title="Удалить">✕</td>
+      `;
+      tr.querySelector('.del-cell').addEventListener('click', (ev) => {
+        ev.stopPropagation();
+        removePlanned(p.id);
+      });
+      tr.addEventListener('click', () => {
+        map.setView([p.lat, p.lng], Math.max(map.getZoom(), 13));
+      });
+      tbody.appendChild(tr);
+    });
+  }
+
+  function removePlanned(id) {
+    const idx = planned.findIndex(p => p.id === id);
+    if (idx === -1) return;
+    plannedLayer.removeLayer(planned[idx].marker);
+    planned.splice(idx, 1);
+    renderPlannedTable();
+  }
+
+  function clearAllPlanned() {
+    planned.forEach(p => plannedLayer.removeLayer(p.marker));
+    planned.length = 0;
+    renderPlannedTable();
+  }
+
+  function addPlanned(lat, lng, label) {
+    if (planned.length >= MAX_PLANNED) return false;
+    const marker = L.marker([lat, lng], {
+      icon: plannedIcon(label),
+      interactive: false,  // статичные метки без кликов/hover — легче для рендера
+      keyboard: false
+    }).addTo(plannedLayer);
+    planned.push({ id: nextPlannedId++, lat, lng, label, marker });
+    renderPlannedTable();
+    return true;
+  }
+
+  const coordInput = document.getElementById('plannedCoordInput');
+  const labelInput = document.getElementById('plannedLabelInput');
+  const statusEl = document.getElementById('status');
+
+  function trySubmitPlanned() {
+    const pt = parseCoordString(coordInput.value); // тот же парсер, что и в поиске по координатам
+    if (!pt) {
+      if (statusEl) { statusEl.style.color = '#b5453f'; statusEl.textContent = '❌ Формат координат: lat, lng'; }
+      return;
+    }
+    if (planned.length >= MAX_PLANNED) {
+      if (statusEl) { statusEl.style.color = '#b5453f'; statusEl.textContent = `❌ Лимит ${MAX_PLANNED} плановых целей достигнут`; }
+      return;
+    }
+    const label = (labelInput.value || '').trim().slice(0, 40);
+    addPlanned(pt[0], pt[1], label);
+    coordInput.value = '';
+    labelInput.value = '';
+    coordInput.focus();
+    if (statusEl) { statusEl.style.color = '#6fce97'; statusEl.textContent = `📍 Плановая цель добавлена (#${planned.length})`; }
+  }
+
+  const btnAdd = document.getElementById('btnAddPlanned');
+  if (btnAdd) btnAdd.addEventListener('click', trySubmitPlanned);
+
+  // удобство: Enter в любом из двух полей сразу добавляет цель
+  [coordInput, labelInput].forEach(inp => {
+    if (!inp) return;
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') trySubmitPlanned(); });
+  });
+
+  // удобство: указать координаты кликом по карте вместо ручного ввода
+  const btnPick = document.getElementById('btnPickOnMap');
+  function setPickMode(on) {
+    plannedPickMode = on;
+    if (btnPick) btnPick.classList.toggle('picking', on);
+    map.getContainer().style.cursor = on ? 'crosshair' : '';
+    if (on && statusEl) { statusEl.style.color = '#5fa6cf'; statusEl.textContent = '📍 Кликните по карте, чтобы указать точку'; }
+  }
+  if (btnPick) {
+    btnPick.addEventListener('click', () => setPickMode(!plannedPickMode));
+  }
+  // вызывается общим обработчиком клика по карте (см. выше); возвращает true, если клик обработан здесь
+  window.handlePlannedMapClick = function(e) {
+    if (!plannedPickMode) return false;
+    coordInput.value = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+    setPickMode(false);
+    labelInput.focus();
+    return true;
+  };
+
+  const btnClearPlanned = document.getElementById('btnClearPlanned');
+  if (btnClearPlanned) {
+    btnClearPlanned.addEventListener('click', () => {
+      if (planned.length === 0) return;
+      clearAllPlanned();
+      if (statusEl) { statusEl.style.color = '#6fce97'; statusEl.textContent = '🗑 Все плановые цели удалены'; }
+    });
+  }
+
+  const btnTogglePlanned = document.getElementById('btnTogglePlanned');
+  function updateTogglePlannedBtn() {
+    if (!btnTogglePlanned) return;
+    btnTogglePlanned.textContent = plannedVisible ? '👁 Скрыть метки' : '👁\u200d🗨 Показать метки';
+  }
+  if (btnTogglePlanned) {
+    btnTogglePlanned.addEventListener('click', () => {
+      plannedVisible = !plannedVisible;
+      if (plannedVisible) plannedLayer.addTo(map);
+      else map.removeLayer(plannedLayer);
+      updateTogglePlannedBtn();
+    });
+    updateTogglePlannedBtn();
+  }
+
+  const btnTogglePlannedLabels = document.getElementById('btnTogglePlannedLabels');
+  function updateTogglePlannedLabelsBtn() {
+    if (!btnTogglePlannedLabels) return;
+    btnTogglePlannedLabels.textContent = plannedLabelsVisible ? '🏷 Скрыть подписи' : '🏷 Показать подписи';
+  }
+  if (btnTogglePlannedLabels) {
+    btnTogglePlannedLabels.addEventListener('click', () => {
+      plannedLabelsVisible = !plannedLabelsVisible;
+      document.body.classList.toggle('planned-labels-hidden', !plannedLabelsVisible);
+      updateTogglePlannedLabelsBtn();
+    });
+    updateTogglePlannedLabelsBtn();
+  }
+
+  renderPlannedTable();
+
+  // сворачивание/разворачивание всей секции по клику на заголовок или стрелку
+  const sectionEl = document.getElementById('plannedSection');
+  const headerEl = document.getElementById('plannedSectionHeader');
+  if (sectionEl && headerEl) {
+    headerEl.addEventListener('click', () => {
+      sectionEl.classList.toggle('collapsed');
+    });
+  }
+})();
+
 /* ====================== Живая трансляция целей на карте ПУ (в реальном времени) ======================
    Идея: не опрашивать сервер раз в минуту, а один раз получить полное описание цели
    (точка старта, маршрут, скорость, время запуска) и дальше КАЖДЫЙ кадр (через
@@ -648,37 +912,94 @@ renderQueue();
     return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
   }
 
+  /* ---- бортовые номера дронов ----
+     Генерируются один раз при спавне каждой цели и не повторяются за всю сессию
+     (пока открыта страница). Новый номер с высокой вероятностью берётся рядом
+     с предыдущим бортом того же типа (кластер), но иногда — в любом месте
+     диапазона, как и бывает на практике. */
+  const BOARD_CFG = {
+    'Герань-2': { prefix: 'Ы',  min: 90000, max: 97000 },
+    'Герань-3': { prefix: 'У-',  min: 100,   max: 400   },
+    'Герань-4': { prefix: 'Е-',  min: 2010,  max: 5000  },
+    'Гербера':  { prefix: 'ЫЫ', min: 80000, max: 90000 }
+    // у Герань-5 бортовой номер не пишется
+  };
+  const boardState = {}; // { [type]: { used:Set<number>, last:number|null } }
+
+  function generateBoardNumber(type) {
+    const cfg = BOARD_CFG[type];
+    if (!cfg) return null;
+    const state = boardState[type] || (boardState[type] = { used: new Set(), last: null });
+    const range = cfg.max - cfg.min;
+    const spread = Math.max(20, Math.round(range * 0.05));
+    let num, attempts = 0;
+    do {
+      if (state.last !== null && Math.random() < 0.7) {
+        num = state.last + Math.round((Math.random() - 0.5) * 2 * spread); // рядом с предыдущим бортом
+      } else {
+        num = cfg.min + Math.round(Math.random() * range); // где угодно в диапазоне
+      }
+      num = Math.min(cfg.max, Math.max(cfg.min, num));
+      attempts++;
+    } while (state.used.has(num) && attempts < 300);
+    if (state.used.has(num)) {
+      for (let n = cfg.min; n <= cfg.max; n++) { if (!state.used.has(n)) { num = n; break; } } // диапазон почти исчерпан
+    }
+    state.used.add(num);
+    state.last = num;
+    const dash = num >= 10000 ? '-' : '';
+    return cfg.prefix + dash + num;
+  }
+
+  const TYPE_CODE = {
+    'Гербера':  'Г',
+    'Герань-2': 'Г2',
+    'Герань-3': 'Г3',
+    'Герань-4': 'Г4',
+    'Герань-5': 'Г5'
+  };
+
+  // строка вида "Г2,Ы-92312" + отдельно скорость "193 км/ч"; у Герань-5 борт не пишется
+  function buildDroneLabelLines(type, speedKmh) {
+    const code = TYPE_CODE[type] || type || '';
+    const speedTxt = `${Math.round(Number(speedKmh) || 0)} км/ч`;
+    const board = type === 'Герань-5' ? null : generateBoardNumber(type);
+    const firstLine = board ? `${code},${board}` : code;
+    return [firstLine, speedTxt];
+  }
+
   // иконка распознанного дрона (Geran-2.png, Geran-3.png, Geran-4.png, Geran-5.png, Gerbera.png) —
   // чёрный силуэт с белой обводкой (drop-shadow-обводка вокруг PNG с прозрачным фоном),
-  // поворачивается по курсу, а над ней держится неповорачивающаяся полупрозрачная рамка с названием дрона
+  // поворачивается по курсу; под ней держится неповорачивающаяся подпись (тип, борт, скорость)
+  // на полупрозрачном белом фоне чёрным текстом.
   const DRONE_ICON_SIZE = 30;
-  const DRONE_LABEL_H = 18;
+  const DRONE_LABEL_H = 26; // под две строки текста
   const DRONE_GAP = 3;
-  const DRONE_WRAP_W = 110;
-  const DRONE_WRAP_H = DRONE_LABEL_H + DRONE_GAP + DRONE_ICON_SIZE;
+  const DRONE_WRAP_W = 120;
+  const DRONE_WRAP_H = DRONE_ICON_SIZE + DRONE_GAP + DRONE_LABEL_H;
 
-  function droneIcon(iconFile, label) {
-    const labelHtml = label
-      ? `<div class="live-drone-label">${escapeHtml(label)}</div>`
+  function droneIcon(iconFile, lines) {
+    const labelHtml = lines
+      ? `<div class="live-drone-label" style="top:${DRONE_ICON_SIZE + DRONE_GAP}px;">${lines.map(l => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
       : '';
     return L.divIcon({
       className: '',
       html: `<div style="position:relative; width:${DRONE_WRAP_W}px; height:${DRONE_WRAP_H}px; pointer-events:none;">
-               ${labelHtml}
-               <div class="live-rot" style="position:absolute; left:50%; top:${DRONE_LABEL_H + DRONE_GAP}px; width:${DRONE_ICON_SIZE}px; height:${DRONE_ICON_SIZE}px; margin-left:${-DRONE_ICON_SIZE/2}px; transform:rotate(0deg);">
+               <div class="live-rot" style="position:absolute; left:50%; top:0; width:${DRONE_ICON_SIZE}px; height:${DRONE_ICON_SIZE}px; margin-left:${-DRONE_ICON_SIZE/2}px; transform:rotate(0deg);">
                  <img src="${iconFile}" width="${DRONE_ICON_SIZE}" height="${DRONE_ICON_SIZE}"
                    style="display:block; width:100%; height:100%;" />
                </div>
+               ${labelHtml}
              </div>`,
       iconSize: [DRONE_WRAP_W, DRONE_WRAP_H],
-      iconAnchor: [DRONE_WRAP_W / 2, DRONE_LABEL_H + DRONE_GAP + DRONE_ICON_SIZE / 2]
+      iconAnchor: [DRONE_WRAP_W / 2, DRONE_ICON_SIZE / 2]
     });
   }
 
-  // выбор иконки: если у цели известен файл иконки дрона — рисуем её (с подписью),
+  // выбор иконки: если у цели известен файл иконки дрона — рисуем её (с подписью снизу),
   // иначе — обычный чёрный треугольник без подписи
-  function pickTargetIcon(type, iconFile) {
-    if (iconFile) return droneIcon(iconFile, type);
+  function pickTargetIcon(type, iconFile, speedKmh) {
+    if (iconFile) return droneIcon(iconFile, buildDroneLabelLines(type, speedKmh));
     return triangleIcon();
   }
 
@@ -729,43 +1050,71 @@ renderQueue();
     if (liveMarkers[key]) return;
     const geo = buildGeo(spawn, route);
     const speedMps = (Number(speedKmh) || 0) / 3.6;
-    const marker = L.marker(spawn, { icon: pickTargetIcon(type, iconFile), zIndexOffset: 1000 }).addTo(liveLayer);
-    const state = { marker, geo, speedMps, launchAtMs, timer: null };
+    const marker = L.marker(spawn, {
+      icon: pickTargetIcon(type, iconFile, speedKmh),
+      zIndexOffset: 1000,
+      interactive: false,  // маркерам не нужны клики/hover — Leaflet не навешивает
+      keyboard: false      // на них обработчики событий, это ощутимо на сотнях целей
+    }).addTo(liveLayer);
+
+    // элемент поворота ищем через querySelector один раз при спавне и кэшируем,
+    // а не на каждом тике для каждой цели (было: 400 querySelector в секунду)
+    const el = marker.getElement();
+    const rotEl = el ? el.querySelector('.live-rot') : null;
+
+    const state = { marker, geo, speedMps, launchAtMs, rotEl, lastHeading: null, arrived: false };
     liveMarkers[key] = state;
 
-    function applyRotation(deg) {
-      const el = marker.getElement();
-      if (!el) return;
-      const rot = el.querySelector('.live-rot');
-      if (rot) rot.style.transform = `rotate(${deg}deg)`;
-    }
+    updateLiveState(state, key, Date.now()); // сразу ставим стартовую позицию, не дожидаясь общего тика
+    ensureMasterTicker();
+  }
 
-    function tick() {
-      if (!liveMarkers[key]) return;
-      // позиция считается от реального прошедшего времени — поэтому даже раз в минуту
-      // цель оказывается ровно там, где должна быть по факту, без накопления ошибки
-      const elapsedS = (Date.now() - state.launchAtMs) / 1000;
-      if (elapsedS < 0) { state.timer = setTimeout(tick, UPDATE_INTERVAL_MS); return; }
-      const distM = elapsedS * state.speedMps;
-      const pos = positionAt(geo, distM);
-      marker.setLatLng([pos.lat, pos.lng]);
-      applyRotation(pos.heading);
-      if (distM >= geo.total) {
-        // цель дошла до конца маршрута — держим маркер ещё немного и убираем
-        state.timer = setTimeout(() => {
-          if (liveMarkers[key]) { liveLayer.removeLayer(liveMarkers[key].marker); delete liveMarkers[key]; }
-        }, 15000);
-        return;
-      }
-      state.timer = setTimeout(tick, UPDATE_INTERVAL_MS);
+  // ---- единый тикер на ВСЕ цели разом ---------------------------------
+  // Раньше у каждой цели был свой setTimeout, который сам себя
+  // перезапускал раз в секунду — при 400 дронах это 400 независимых
+  // таймеров и колбэков в секунду, из-за чего вкладка подтормаживала.
+  // Теперь один общий таймер раз в секунду проходит по всем целям
+  // одним циклом — число таймеров больше не растёт вместе с числом дронов.
+  let masterTickerRunning = false;
+
+  function updateLiveState(state, key, now) {
+    const elapsedS = (now - state.launchAtMs) / 1000;
+    if (elapsedS < 0) return; // ещё не запущена — ждём следующего тика
+    const distM = elapsedS * state.speedMps;
+    const pos = positionAt(state.geo, distM);
+    state.marker.setLatLng([pos.lat, pos.lng]);
+    // пишем в стиль только когда курс реально изменился — меньше лишних style-записей
+    if (pos.heading !== state.lastHeading) {
+      if (state.rotEl) state.rotEl.style.transform = `rotate(${pos.heading}deg)`;
+      state.lastHeading = pos.heading;
     }
-    tick();
+    if (distM >= state.geo.total && !state.arrived) {
+      // цель дошла до конца маршрута — держим маркер ещё немного и убираем
+      state.arrived = true;
+      setTimeout(() => {
+        if (liveMarkers[key]) { liveLayer.removeLayer(liveMarkers[key].marker); delete liveMarkers[key]; }
+      }, 15000);
+    }
+  }
+
+  function masterTick() {
+    const now = Date.now();
+    for (const key in liveMarkers) {
+      const state = liveMarkers[key];
+      if (state) updateLiveState(state, key, now);
+    }
+    setTimeout(masterTick, UPDATE_INTERVAL_MS);
+  }
+
+  function ensureMasterTicker() {
+    if (masterTickerRunning) return;
+    masterTickerRunning = true;
+    setTimeout(masterTick, UPDATE_INTERVAL_MS);
   }
 
   function removeLiveTarget(key) {
     const st = liveMarkers[key];
     if (!st) return;
-    if (st.timer) clearTimeout(st.timer);
     liveLayer.removeLayer(st.marker);
     delete liveMarkers[key];
   }
