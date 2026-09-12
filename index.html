@@ -132,6 +132,25 @@
   .template-btn:active { filter:brightness(1.15); }
   .template-btn.active { outline:2px solid #ffcf3d; outline-offset:-2px; }
 
+  /* ---- статистика запущенных целей ---- */
+  .stats-block { margin-bottom:10px; }
+  .stats-block:last-child { margin-bottom:0; }
+  .stats-title {
+    font-size:11px; font-weight:700; color: var(--amber);
+    margin-bottom:3px; letter-spacing:0.2px;
+  }
+  .stats-line {
+    font-size:11px; color: var(--row-text); background: var(--row-bg);
+    border:1px solid var(--row-border); border-radius:2px;
+    padding:2px 6px; margin-bottom:2px;
+  }
+  .stats-line.stats-empty { color: var(--text-dim); background:transparent; border-style:dashed; }
+  .stats-total {
+    font-size:11px; font-weight:700; color: var(--btn-text);
+    background: var(--table-head); border-radius:2px;
+    padding:3px 6px; margin-top:4px;
+  }
+
   .spin-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .spin-row .lbl {
     font-size:10.5px; color: var(--table-head-tx); white-space:nowrap;
@@ -162,6 +181,13 @@
   .del-cell { text-align:center; cursor:pointer; color: var(--red); font-weight:700; width:20px; }
   .table-wrap { max-height:170px; overflow-y:auto; border-top:1px solid var(--frame-edge); }
   .table-empty { font-size:10.5px; color: var(--text-dim); font-style:italic; padding:6px; background: var(--row-bg); }
+
+  .wp-speed-input {
+    width:56px; padding:2px 4px; font-size:10.5px;
+    background: #fff; color:#1a2412;
+    border:1px solid #6d7d5e; border-radius:2px;
+  }
+  .wp-speed-input:focus { outline:none; border-color: var(--amber); }
 
   #status { font-size:10.5px; margin-top:8px; min-height:14px; color: var(--table-head-tx); }
 
@@ -255,6 +281,13 @@
           <button type="button" class="template-btn" data-min="300" data-max="370" data-type="Герань-3" data-icon="Geran-3.png">Герань-3<span class="tpl-range">300–370 км/ч</span></button>
           <button type="button" class="template-btn" data-min="400" data-max="430" data-type="Герань-4" data-icon="Geran-4.png">Герань-4<span class="tpl-range">400–430 км/ч</span></button>
           <button type="button" class="template-btn" data-min="500" data-max="550" data-type="Герань-5" data-icon="Geran-5.png">Герань-5<span class="tpl-range">500–550 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="5500" data-max="6000" data-type="Искандер-М" data-icon="Искандер-М.png">Искандер-М<span class="tpl-range">5500–6000 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="900" data-max="1000" data-type="Х-101" data-icon="Х-101.png">Х-101<span class="tpl-range">900–1000 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="600" data-max="700" data-type="Бандероль" data-icon="Бандероль.png">Бандероль<span class="tpl-range">600–700 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="6000" data-max="7000" data-type="Циркон" data-icon="Циркон.png">Циркон<span class="tpl-range">6000–7000 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="800" data-max="800" data-type="Су-34" data-icon="Су-34.png">Су-34<span class="tpl-range">800 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="900" data-max="1000" data-type="Х-59" data-icon="Х-59.png">Х-59<span class="tpl-range">900–1000 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="900" data-max="1000" data-type="Калибр" data-icon="Калибр.png">Калибр<span class="tpl-range">900–1000 км/ч</span></button>
         </div>
 
         <div class="spin-row">
@@ -273,7 +306,7 @@
 
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>№</th><th>Lat</th><th>Lng</th></tr></thead>
+          <thead><tr><th>№</th><th>Lat</th><th>Lng</th><th>Скор.</th></tr></thead>
           <tbody id="routeTableBody"></tbody>
         </table>
         <div class="table-empty" id="routeEmpty">клики по карте</div>
@@ -326,6 +359,21 @@
           <tbody id="plannedTableBody"></tbody>
         </table>
         <div class="table-empty" id="plannedEmpty">меток нет</div>
+      </div>
+    </div>
+
+    <div class="section" id="statsSection">
+      <div class="section-label collapsible" id="statsSectionHeader">
+        <span>Статистика запущенных целей</span>
+        <span class="arrow">▾</span>
+      </div>
+      <div class="section-body">
+        <div class="hint">
+          Считает только цели, которые ты сам запустил кнопкой «Запустить очередь»
+          (данные, пришедшие через синхронизацию от других — не учитываются).
+        </div>
+        <div id="statsBody"></div>
+        <button class="wide danger" id="btnResetStats" style="margin-top:8px;">↺ Сбросить статистику</button>
       </div>
     </div>
 
@@ -477,12 +525,12 @@ function redrawCurrent() {
   if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
 
   routePoints.forEach(pt => {
-    const m = L.marker(pt, { icon: pinIcon('#5fa6cf') }).addTo(map);
+    const m = L.marker([pt[0], pt[1]], { icon: pinIcon('#5fa6cf') }).addTo(map);
     routeMarkers.push(m);
   });
 
   if (spawnPoint) {
-    const full = [spawnPoint, ...routePoints];
+    const full = [spawnPoint, ...routePoints.map(p => [p[0], p[1]])];
     if (full.length > 1) {
       routeLine = L.polyline(full, { color:'#e03b3b', weight:3 }).addTo(map);
     }
@@ -495,9 +543,21 @@ function redrawCurrent() {
     empty.style.display = 'block';
   } else {
     empty.style.display = 'none';
-    tbody.innerHTML = routePoints.map((p,i) =>
-      `<tr><td>${i+1}</td><td>${p[0].toFixed(4)}</td><td>${p[1].toFixed(4)}</td></tr>`
-    ).join('');
+    tbody.innerHTML = '';
+    routePoints.forEach((p, i) => {
+      const tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${i+1}</td>
+        <td>${p[0].toFixed(4)}</td>
+        <td>${p[1].toFixed(4)}</td>
+        <td><input type="number" class="wp-speed-input" min="0" value="${p[2] ?? 0}"></td>
+      `;
+      tr.querySelector('.wp-speed-input').addEventListener('input', (ev) => {
+        const v = Number(ev.target.value);
+        routePoints[i][2] = isFinite(v) && v >= 0 ? v : 0;
+      });
+      tbody.appendChild(tr);
+    });
   }
 }
 
@@ -510,7 +570,8 @@ map.on('click', (e) => {
     if (spawnMarker) map.removeLayer(spawnMarker);
     spawnMarker = L.marker(latlng, { icon: pinIcon('#4a9e6f') }).addTo(map);
   } else {
-    routePoints.push(latlng);
+    const wpSpeed = Number(document.getElementById('speedInput').value) || 0;
+    routePoints.push([latlng[0], latlng[1], wpSpeed]);
   }
   redrawCurrent();
 });
@@ -578,7 +639,7 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
   const marker = L.marker(spawnPoint, { icon: pinIcon('#3a7ea5') }).addTo(map);
   let line = null;
   if (routePoints.length > 0) {
-    line = L.polyline([spawnPoint, ...routePoints], { color:'#e03b3b', weight:2, opacity:0.6 }).addTo(map);
+    line = L.polyline([spawnPoint, ...routePoints.map(p => [p[0], p[1]])], { color:'#e03b3b', weight:2, opacity:0.6 }).addTo(map);
   }
   queueLayers.push({ marker, line });
 
@@ -637,6 +698,7 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
     .then(() => {
       statusEl.style.color = '#6fce97';
       statusEl.textContent = `✅ Запущено целей: ${queue.length}`;
+      registerLaunchedTargets(queue); // статистика считает только то, что ушло именно с этой кнопки
       queueLayers.forEach(l => { map.removeLayer(l.marker); if (l.line) map.removeLayer(l.line); });
       queueLayers = [];
       queue = [];
@@ -649,6 +711,75 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
 });
 
 renderQueue();
+
+/* ====================== Статистика запущенных целей ======================
+   Считает только цели, отправленные именно этим кликом по "Запустить очередь"
+   в этой вкладке — цели, пришедшие через Firebase от других операторов, сюда
+   не попадают (см. registerLaunchedTargets, вызывается только из btnLaunchAll).
+   Хранится в localStorage — переживает перезагрузку страницы. */
+const STATS_CATEGORIES = [
+  { title: 'БпЛА', totalLabel: 'Всего БпЛА', types: ['Герань-2', 'Герань-3', 'Герань-4', 'Герань-5', 'Гербера'] },
+  { title: 'Крылатые ракеты', totalLabel: 'Всего крылатых ракет', types: ['Х-101', 'Х-59', 'Бандероль', 'Калибр'] },
+  { title: 'Баллистические и гиперзвуковые ракеты', totalLabel: 'Всего баллистических и гиперзвуковых ракет', types: ['Искандер-М', 'Циркон'] }
+];
+const STATS_STORAGE_KEY = 'targetLaunchStats_v1';
+
+function statsEscapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
+
+let launchStats = {};
+try {
+  const saved = JSON.parse(localStorage.getItem(STATS_STORAGE_KEY) || '{}');
+  if (saved && typeof saved === 'object') launchStats = saved;
+} catch (e) { launchStats = {}; }
+
+function saveStats() {
+  try { localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(launchStats)); } catch (e) {}
+}
+
+function registerLaunchedTargets(items) {
+  items.forEach(item => {
+    const type = item && item.type;
+    if (!type) return; // цель без выбранного шаблона (тип не задан) в статистику не идёт
+    launchStats[type] = (launchStats[type] || 0) + 1;
+  });
+  saveStats();
+  renderStats();
+}
+
+function renderStats() {
+  const wrap = document.getElementById('statsBody');
+  if (!wrap) return;
+  wrap.innerHTML = STATS_CATEGORIES.map(cat => {
+    const rows = cat.types.map(t => ({ t, n: launchStats[t] || 0 })).filter(r => r.n > 0);
+    const total = rows.reduce((s, r) => s + r.n, 0);
+    const linesHtml = rows.length
+      ? rows.map(r => `<div class="stats-line">${r.n} ${statsEscapeHtml(r.t)}</div>`).join('')
+      : `<div class="stats-line stats-empty">пока не запускалось</div>`;
+    return `<div class="stats-block">
+        <div class="stats-title">${statsEscapeHtml(cat.title)}:</div>
+        ${linesHtml}
+        <div class="stats-total">${statsEscapeHtml(cat.totalLabel)}: ${total}</div>
+      </div>`;
+  }).join('');
+}
+
+const statsHeaderEl = document.getElementById('statsSectionHeader');
+if (statsHeaderEl) {
+  statsHeaderEl.addEventListener('click', () => {
+    document.getElementById('statsSection').classList.toggle('collapsed');
+  });
+}
+
+document.getElementById('btnResetStats').addEventListener('click', () => {
+  if (!confirm('Обнулить статистику запущенных целей?')) return;
+  launchStats = {};
+  saveStats();
+  renderStats();
+});
+
+renderStats();
 
 /* ====================== Плановые (статические) цели на карте ======================
    Это просто метки-ориентиры, которые оператор ставит сам по известным координатам —
@@ -870,8 +1001,14 @@ renderQueue();
   if (toggleBtn) {
     toggleBtn.addEventListener('click', () => {
       liveVisible = !liveVisible;
-      if (liveVisible) liveLayer.addTo(map);
-      else map.removeLayer(liveLayer);
+      // не удаляем слой с карты (это уничтожает DOM-иконки маркеров и рвёт
+      // закэшированную ссылку на элемент поворота rotEl) — просто прячем/показываем
+      // сами элементы через CSS, слой и маркеры остаются на карте как были
+      for (const key in liveMarkers) {
+        const st = liveMarkers[key];
+        const el = st.marker.getElement();
+        if (el) el.style.display = liveVisible ? '' : 'none';
+      }
       updateToggleBtn();
     });
     updateToggleBtn();
@@ -959,7 +1096,9 @@ renderQueue();
     'Герань-5': 'Г5'
   };
 
-  // строка вида "Г2,Ы-92312" + отдельно скорость "193 км/ч"; у Герань-5 борт не пишется
+  // строка вида "Г2,Ы-92312" (тип+борт) + отдельно строка скорости "193 км/ч" —
+  // скорость держим отдельно, т.к. она может измениться на маршруте (по вейпоинтам)
+  // и подпись на карте должна обновляться вслед за фактической скоростью на сегменте
   function buildDroneLabelLines(type, speedKmh) {
     const code = TYPE_CODE[type] || type || '';
     const speedTxt = `${Math.round(Number(speedKmh) || 0)} км/ч`;
@@ -979,8 +1118,14 @@ renderQueue();
   const DRONE_WRAP_H = DRONE_ICON_SIZE + DRONE_GAP + DRONE_LABEL_H;
 
   function droneIcon(iconFile, lines) {
+    // вторая строка (скорость) помечена классом live-speed-line, чтобы потом
+    // находить именно её и обновлять текст при смене скорости на маршруте,
+    // не трогая первую строку (тип/борт) и не пересоздавая всю иконку
     const labelHtml = lines
-      ? `<div class="live-drone-label" style="top:${DRONE_ICON_SIZE + DRONE_GAP}px;">${lines.map(l => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
+      ? `<div class="live-drone-label" style="top:${DRONE_ICON_SIZE + DRONE_GAP}px;">
+           <div>${escapeHtml(lines[0])}</div>
+           <div class="live-speed-line">${escapeHtml(lines[1])}</div>
+         </div>`
       : '';
     return L.divIcon({
       className: '',
@@ -1011,45 +1156,57 @@ renderQueue();
     return (toDeg(Math.atan2(y, x)) + 360) % 360;
   }
 
-  function buildGeo(spawn, route) {
+  function buildGeo(spawn, route, baseSpeedKmh) {
     const pts = [spawn, ...(Array.isArray(route) ? route : [])];
     const segs = [];
-    let total = 0;
+    let totalDist = 0, totalTimeS = 0;
+    let prevSpeedKmh = Number(baseSpeedKmh) || 0;
     for (let i = 0; i < pts.length - 1; i++) {
       const a = L.latLng(pts[i][0], pts[i][1]);
       const b = L.latLng(pts[i + 1][0], pts[i + 1][1]);
       const d = a.distanceTo(b);
-      segs.push({ a, b, d, from: total, brng: bearingDeg(a, b) });
-      total += d;
+
+      // 🎚️ скорость этого отрезка: у точки прибытия (route[i]) может быть своя
+      // скорость (3-й элемент), иначе — скорость предыдущего отрезка (или базовая для первого).
+      const routePt = route && route[i];
+      const explicitSpeed = Array.isArray(routePt) ? Number(routePt[2]) : NaN;
+      const segSpeedKmh = (isFinite(explicitSpeed) && explicitSpeed > 0) ? explicitSpeed : prevSpeedKmh;
+      prevSpeedKmh = segSpeedKmh;
+
+      const segSpeedMps = segSpeedKmh / 3.6;
+      const durS = segSpeedMps > 0 ? d / segSpeedMps : 0;
+
+      segs.push({ a, b, d, from: totalDist, fromT: totalTimeS, durS, brng: bearingDeg(a, b), speedKmh: segSpeedKmh });
+      totalDist += d;
+      totalTimeS += durS;
     }
-    return { pts, segs, total };
+    return { pts, segs, totalDist, totalTimeS };
   }
 
-  // возвращает {lat, lng, heading}
-  function positionAt(geo, distM) {
+  // возвращает {lat, lng, heading} по прошедшему времени (сек) — учитывает переменную скорость по сегментам
+  function positionAt(geo, elapsedS) {
     const last = geo.pts[geo.pts.length - 1];
-    if (geo.segs.length === 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: 0 };
-    if (distM <= 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: geo.segs[0].brng };
-    if (distM >= geo.total) {
+    if (geo.segs.length === 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: 0, speedKmh: 0 };
+    if (elapsedS <= 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: geo.segs[0].brng, speedKmh: geo.segs[0].speedKmh };
+    if (elapsedS >= geo.totalTimeS) {
       const s = geo.segs[geo.segs.length - 1];
-      return { lat: last[0], lng: last[1], heading: s.brng };
+      return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh };
     }
     for (const s of geo.segs) {
-      if (distM <= s.from + s.d) {
-        const t = s.d > 0 ? (distM - s.from) / s.d : 0;
-        return { lat: s.a.lat + (s.b.lat - s.a.lat) * t, lng: s.a.lng + (s.b.lng - s.a.lng) * t, heading: s.brng };
+      if (elapsedS <= s.fromT + s.durS) {
+        const t = s.durS > 0 ? (elapsedS - s.fromT) / s.durS : 0;
+        return { lat: s.a.lat + (s.b.lat - s.a.lat) * t, lng: s.a.lng + (s.b.lng - s.a.lng) * t, heading: s.brng, speedKmh: s.speedKmh };
       }
     }
     const s = geo.segs[geo.segs.length - 1];
-    return { lat: last[0], lng: last[1], heading: s.brng };
+    return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh };
   }
 
   const UPDATE_INTERVAL_MS = 1000; // обновление позиции каждую секунду
 
   function spawnLiveTarget(key, spawn, route, speedKmh, launchAtMs, type, iconFile) {
     if (liveMarkers[key]) return;
-    const geo = buildGeo(spawn, route);
-    const speedMps = (Number(speedKmh) || 0) / 3.6;
+    const geo = buildGeo(spawn, route, speedKmh);
     const marker = L.marker(spawn, {
       icon: pickTargetIcon(type, iconFile, speedKmh),
       zIndexOffset: 1000,
@@ -1057,12 +1214,14 @@ renderQueue();
       keyboard: false      // на них обработчики событий, это ощутимо на сотнях целей
     }).addTo(liveLayer);
 
-    // элемент поворота ищем через querySelector один раз при спавне и кэшируем,
-    // а не на каждом тике для каждой цели (было: 400 querySelector в секунду)
+    // элемент поворота и элемент строки скорости в подписи ищем через querySelector
+    // один раз при спавне и кэшируем, а не на каждом тике для каждой цели
     const el = marker.getElement();
+    if (el) el.style.display = liveVisible ? '' : 'none'; // учитываем текущее состояние кнопки "Скрыть цели"
     const rotEl = el ? el.querySelector('.live-rot') : null;
+    const speedEl = el ? el.querySelector('.live-speed-line') : null;
 
-    const state = { marker, geo, speedMps, launchAtMs, rotEl, lastHeading: null, arrived: false };
+    const state = { marker, geo, launchAtMs, rotEl, speedEl, lastHeading: null, lastSpeedKmh: null, arrived: false };
     liveMarkers[key] = state;
 
     updateLiveState(state, key, Date.now()); // сразу ставим стартовую позицию, не дожидаясь общего тика
@@ -1080,15 +1239,22 @@ renderQueue();
   function updateLiveState(state, key, now) {
     const elapsedS = (now - state.launchAtMs) / 1000;
     if (elapsedS < 0) return; // ещё не запущена — ждём следующего тика
-    const distM = elapsedS * state.speedMps;
-    const pos = positionAt(state.geo, distM);
+    const pos = positionAt(state.geo, elapsedS);
     state.marker.setLatLng([pos.lat, pos.lng]);
     // пишем в стиль только когда курс реально изменился — меньше лишних style-записей
     if (pos.heading !== state.lastHeading) {
       if (state.rotEl) state.rotEl.style.transform = `rotate(${pos.heading}deg)`;
       state.lastHeading = pos.heading;
     }
-    if (distM >= state.geo.total && !state.arrived) {
+    // подпись скорости на карте раньше "замораживалась" на стартовом значении —
+    // теперь подтягиваем фактическую скорость текущего сегмента маршрута
+    // (если она была явно задана на вейпоинте) и обновляем только при изменении
+    const roundedSpeed = Math.round(pos.speedKmh || 0);
+    if (roundedSpeed !== state.lastSpeedKmh) {
+      if (state.speedEl) state.speedEl.textContent = `${roundedSpeed} км/ч`;
+      state.lastSpeedKmh = roundedSpeed;
+    }
+    if (elapsedS >= state.geo.totalTimeS && !state.arrived) {
       // цель дошла до конца маршрута — держим маркер ещё немного и убираем
       state.arrived = true;
       setTimeout(() => {
@@ -1132,7 +1298,7 @@ renderQueue();
 
     const spawn = Array.isArray(t.spawn) ? [Number(t.spawn[0]), Number(t.spawn[1])] : null;
     if (!spawn || !isFinite(spawn[0]) || !isFinite(spawn[1])) return;
-    const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1])]) : [];
+    const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1]), Number(p[2]) || 0]) : [];
     const speed = Number(t.speed) || 0;
     const spawnDelayMs = Math.max(0, (Number(t.spawnDelay ?? t.delay) || 0) * 1000);
     const baseAt = Number(t.launchedAt) || t.createdAt;
@@ -1141,14 +1307,9 @@ renderQueue();
     spawnLiveTarget(snapshot.key, spawn, route, speed, launchAtMs, t.type || null, t.icon || null);
 
     if (Array.isArray(t.triggers) && t.triggers.length) {
-      const R = 6371000;
-      const toRad = x => x * Math.PI / 180;
-      function hvs(a, b, c, d) {
-        const dLa = toRad(c - a), dLo = toRad(d - b);
-        const xx = Math.sin(dLa / 2) ** 2 + Math.cos(toRad(a)) * Math.cos(toRad(c)) * Math.sin(dLo / 2) ** 2;
-        return 2 * R * Math.atan2(Math.sqrt(xx), Math.sqrt(1 - xx));
-      }
-      const allPts = [spawn, ...route];
+      // 🎚️ время до вейпоинта считаем по сегментам с учётом переменной скорости
+      // (а не по одной постоянной скорости, как раньше)
+      const routeGeo = buildGeo(spawn, route, speed);
 
       t.triggers.forEach(function(trig, ti) {
         const trigSpawn = Array.isArray(trig.spawn) ? [Number(trig.spawn[0]), Number(trig.spawn[1])] : null;
@@ -1158,12 +1319,8 @@ renderQueue();
         const trigSpeed = Number(trig.speed) || 450;
         const trigDelay = Number(trig.delay) || 12;
 
-        let distM = 0;
-        const endIdx = Math.min(trigWpIndex, allPts.length - 1);
-        for (let i = 0; i < endIdx; i++) distM += hvs(allPts[i][0], allPts[i][1], allPts[i + 1][0], allPts[i + 1][1]);
-
-        const planeSpeedMs = (speed * 1000) / 3600;
-        const timeToWpMs = planeSpeedMs > 0 ? (distM / planeSpeedMs) * 1000 : 0;
+        const endIdx = Math.min(trigWpIndex, routeGeo.segs.length);
+        const timeToWpMs = endIdx > 0 ? (routeGeo.segs[endIdx - 1].fromT + routeGeo.segs[endIdx - 1].durS) * 1000 : 0;
         const trigLaunchAt = launchAtMs + timeToWpMs + trigDelay * 1000;
 
         spawnLiveTarget(snapshot.key + '_trig' + ti, trigSpawn, trigRoute, trigSpeed, trigLaunchAt);
