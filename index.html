@@ -716,26 +716,22 @@ renderQueue();
    Считает только цели, отправленные именно этим кликом по "Запустить очередь"
    в этой вкладке — цели, пришедшие через Firebase от других операторов, сюда
    не попадают (см. registerLaunchedTargets, вызывается только из btnLaunchAll).
-   Хранится в localStorage — переживает перезагрузку страницы. */
+   Хранится только в памяти вкладки — при перезагрузке страницы обнуляется. */
 const STATS_CATEGORIES = [
   { title: 'БпЛА', totalLabel: 'Всего БпЛА', types: ['Герань-2', 'Герань-3', 'Герань-4', 'Герань-5', 'Гербера'] },
   { title: 'Крылатые ракеты', totalLabel: 'Всего крылатых ракет', types: ['Х-101', 'Х-59', 'Бандероль', 'Калибр'] },
   { title: 'Баллистические и гиперзвуковые ракеты', totalLabel: 'Всего баллистических и гиперзвуковых ракет', types: ['Искандер-М', 'Циркон'] }
 ];
-const STATS_STORAGE_KEY = 'targetLaunchStats_v1';
 
 function statsEscapeHtml(s) {
   return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
 }
 
 let launchStats = {};
-try {
-  const saved = JSON.parse(localStorage.getItem(STATS_STORAGE_KEY) || '{}');
-  if (saved && typeof saved === 'object') launchStats = saved;
-} catch (e) { launchStats = {}; }
 
 function saveStats() {
-  try { localStorage.setItem(STATS_STORAGE_KEY, JSON.stringify(launchStats)); } catch (e) {}
+  // статистика больше не сохраняется между перезагрузками — функция оставлена
+  // как no-op, чтобы не менять остальной код, который её вызывает
 }
 
 function registerLaunchedTargets(items) {
