@@ -187,6 +187,8 @@
     background: #fff; color:#1a2412;
     border:1px solid #6d7d5e; border-radius:2px;
   }
+  .wp-alt-input { width:56px; padding:2px 4px; font-size:10.5px; background:#fff; color:#1a2412; border:1px solid #6d7d5e; border-radius:2px; }
+  .wp-alt-input:focus { outline:none; border-color: var(--amber); }
   .wp-speed-input:focus { outline:none; border-color: var(--amber); }
 
   #status { font-size:10.5px; margin-top:8px; min-height:14px; color: var(--table-head-tx); }
@@ -296,9 +298,27 @@
           <span class="unit">км/ч</span>
         </div>
         <div class="spin-row">
+          <span class="lbl">Высота</span>
+          <input type="number" id="altInput" value="0" min="0">
+          <span class="unit">м</span>
+        </div>
+        <div class="spin-row">
           <span class="lbl">Задержка</span>
           <input type="number" id="delayInput" value="0" min="0">
           <span class="unit">сек</span>
+        </div>
+
+        <div class="spin-row" style="margin-top:8px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;">
+            <input type="checkbox" id="descOn"> Пикирование на цель
+          </label>
+        </div>
+        <div class="spin-row">
+          <span class="lbl">до</span>
+          <input type="number" id="descTo" value="100" min="0">
+          <span class="unit">м за</span>
+          <input type="number" id="descKm" value="10" min="0" step="0.5">
+          <span class="unit">км</span>
         </div>
 
         <button class="wide" id="btnUndo">↩ Отменить точку</button>
@@ -306,7 +326,7 @@
 
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>№</th><th>Lat</th><th>Lng</th><th>Скор.</th></tr></thead>
+          <thead><tr><th>№</th><th>Lat</th><th>Lng</th><th>Скор.</th><th>Выс.</th></tr></thead>
           <tbody id="routeTableBody"></tbody>
         </table>
         <div class="table-empty" id="routeEmpty">клики по карте</div>
@@ -551,7 +571,12 @@ function redrawCurrent() {
         <td>${p[0].toFixed(4)}</td>
         <td>${p[1].toFixed(4)}</td>
         <td><input type="number" class="wp-speed-input" min="0" value="${p[2] ?? 0}"></td>
+        <td><input type="number" class="wp-alt-input" min="0" value="${p[3] ?? 0}"></td>
       `;
+      tr.querySelector('.wp-alt-input').addEventListener('input', (ev) => {
+        const v = Number(ev.target.value);
+        routePoints[i][3] = isFinite(v) && v >= 0 ? v : 0;
+      });
       tr.querySelector('.wp-speed-input').addEventListener('input', (ev) => {
         const v = Number(ev.target.value);
         routePoints[i][2] = isFinite(v) && v >= 0 ? v : 0;
@@ -571,10 +596,62 @@ map.on('click', (e) => {
     spawnMarker = L.marker(latlng, { icon: pinIcon('#4a9e6f') }).addTo(map);
   } else {
     const wpSpeed = Number(document.getElementById('speedInput').value) || 0;
-    routePoints.push([latlng[0], latlng[1], wpSpeed]);
+    const wpAlt = Number(document.getElementById('altInput').value) || 0;
+    routePoints.push([latlng[0], latlng[1], wpSpeed, wpAlt]);
   }
   redrawCurrent();
 });
+
+/* ---- пикирование: высота постоянная по маршруту, падает только на последних N км до последней точки ---- */
+function applyDescent(base, from, to, km) {
+  const steps = 10;
+  const hav = (a, b) => {
+    const R = 6371000, r = x => x * Math.PI / 180;
+    const dLa = r(b[0]-a[0]), dLo = r(b[1]-a[1]);
+    const h = Math.sin(dLa/2)**2 + Math.cos(r(a[0]))*Math.cos(r(b[0]))*Math.sin(dLo/2)**2;
+    return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1-h));
+  };
+  const path = [spawnPoint, ...base];
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) cum.push(cum[i-1] + hav(path[i-1], path[i]));
+  const total = cum[cum.length - 1];
+  const Dd = Math.min(km * 1000, total);
+  const sd = total - Dd;
+
+  const at = (d) => {
+    for (let k = 0; k < path.length - 1; k++) {
+      if (d <= cum[k+1] || k === path.length - 2) {
+        const seg = cum[k+1] - cum[k];
+        const f = seg > 0 ? Math.min(1, Math.max(0, (d - cum[k]) / seg)) : 1;
+        const a = path[k], b = path[k+1];
+        return [a[0] + (b[0]-a[0])*f, a[1] + (b[1]-a[1])*f, b[2] ?? 0];
+      }
+    }
+  };
+
+  const marks = [];
+  for (let i = 1; i < path.length; i++) marks.push({ d: cum[i], orig: base[i-1] });
+  if (Dd > 0) {
+    if (sd > 1) marks.push({ d: sd, orig: null });
+    for (let j = 1; j < steps; j++) marks.push({ d: sd + Dd * j / steps, orig: null });
+  }
+  marks.sort((x, y) => x.d - y.d);
+  const clean = [];
+  marks.forEach(m => {
+    const last = clean[clean.length - 1];
+    if (last && Math.abs(last.d - m.d) < 1) {
+      if (!last.orig && m.orig) clean[clean.length - 1] = m;
+    } else clean.push(m);
+  });
+
+  const pts = clean.map(m => {
+    const pos = m.orig ? [m.orig[0], m.orig[1], m.orig[2] ?? 0] : at(m.d);
+    const f = Dd > 0 ? Math.min(1, Math.max(0, (m.d - sd) / Dd)) : 1;
+    return [pos[0], pos[1], pos[2], Math.round(from + (to - from) * f)];
+  });
+  pts[pts.length - 1][3] = Math.round(to);
+  return pts;
+}
 
 document.getElementById('btnUndo').addEventListener('click', () => {
   if (routePoints.length > 0) routePoints.pop();
@@ -633,6 +710,14 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
 
   const speed = Number(document.getElementById('speedInput').value) || 0;
   const delay = Number(document.getElementById('delayInput').value) || 0;
+
+  // 📉 пикирование на цель: высота полёта = поле "Высота", падает до "до" за последние "км"
+  if (document.getElementById('descOn').checked && routePoints.length > 0) {
+    const cruise = Number(document.getElementById('altInput').value) || 0;
+    const toH = Math.max(0, Number(document.getElementById('descTo').value) || 0);
+    const km = Math.max(0, Number(document.getElementById('descKm').value) || 0);
+    routePoints = applyDescent(routePoints.slice(), cruise, toH, km);
+  }
 
   queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay, type: selectedTargetType, icon: selectedTargetIcon });
 
@@ -1095,9 +1180,15 @@ renderStats();
   // строка вида "Г2,Ы-92312" (тип+борт) + отдельно строка скорости "193 км/ч" —
   // скорость держим отдельно, т.к. она может измениться на маршруте (по вейпоинтам)
   // и подпись на карте должна обновляться вслед за фактической скоростью на сегменте
-  function buildDroneLabelLines(type, speedKmh) {
+  // строка скорости + текущая высота (если известна): "425 км/ч 4000 м"
+  function speedLineText(speedKmh, altM) {
+    const base = `${Math.round(Number(speedKmh) || 0)} км/ч`;
+    return altM > 0 ? `${base} ${Math.round(altM)} м` : base;
+  }
+
+  function buildDroneLabelLines(type, speedKmh, altM) {
     const code = TYPE_CODE[type] || type || '';
-    const speedTxt = `${Math.round(Number(speedKmh) || 0)} км/ч`;
+    const speedTxt = speedLineText(speedKmh, altM);
     const board = type === 'Герань-5' ? null : generateBoardNumber(type);
     const firstLine = board ? `${code},${board}` : code;
     return [firstLine, speedTxt];
@@ -1139,8 +1230,8 @@ renderStats();
 
   // выбор иконки: если у цели известен файл иконки дрона — рисуем её (с подписью снизу),
   // иначе — обычный чёрный треугольник без подписи
-  function pickTargetIcon(type, iconFile, speedKmh) {
-    if (iconFile) return droneIcon(iconFile, buildDroneLabelLines(type, speedKmh));
+  function pickTargetIcon(type, iconFile, speedKmh, altM) {
+    if (iconFile) return droneIcon(iconFile, buildDroneLabelLines(type, speedKmh, altM));
     return triangleIcon();
   }
 
@@ -1157,6 +1248,7 @@ renderStats();
     const segs = [];
     let totalDist = 0, totalTimeS = 0;
     let prevSpeedKmh = Number(baseSpeedKmh) || 0;
+    let prevAltM = 0; // 🏔️ высота (м) — 4-й элемент точки; 0 = не задана
     for (let i = 0; i < pts.length - 1; i++) {
       const a = L.latLng(pts[i][0], pts[i][1]);
       const b = L.latLng(pts[i + 1][0], pts[i + 1][1]);
@@ -1168,11 +1260,14 @@ renderStats();
       const explicitSpeed = Array.isArray(routePt) ? Number(routePt[2]) : NaN;
       const segSpeedKmh = (isFinite(explicitSpeed) && explicitSpeed > 0) ? explicitSpeed : prevSpeedKmh;
       prevSpeedKmh = segSpeedKmh;
+      const explicitAlt = Array.isArray(routePt) ? Number(routePt[3]) : NaN;
+      const segAltM = (isFinite(explicitAlt) && explicitAlt > 0) ? explicitAlt : prevAltM;
+      prevAltM = segAltM;
 
       const segSpeedMps = segSpeedKmh / 3.6;
       const durS = segSpeedMps > 0 ? d / segSpeedMps : 0;
 
-      segs.push({ a, b, d, from: totalDist, fromT: totalTimeS, durS, brng: bearingDeg(a, b), speedKmh: segSpeedKmh });
+      segs.push({ a, b, d, from: totalDist, fromT: totalTimeS, durS, brng: bearingDeg(a, b), speedKmh: segSpeedKmh, altM: segAltM });
       totalDist += d;
       totalTimeS += durS;
     }
@@ -1182,20 +1277,20 @@ renderStats();
   // возвращает {lat, lng, heading} по прошедшему времени (сек) — учитывает переменную скорость по сегментам
   function positionAt(geo, elapsedS) {
     const last = geo.pts[geo.pts.length - 1];
-    if (geo.segs.length === 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: 0, speedKmh: 0 };
-    if (elapsedS <= 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: geo.segs[0].brng, speedKmh: geo.segs[0].speedKmh };
+    if (geo.segs.length === 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: 0, speedKmh: 0, altM: 0 };
+    if (elapsedS <= 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: geo.segs[0].brng, speedKmh: geo.segs[0].speedKmh, altM: geo.segs[0].altM };
     if (elapsedS >= geo.totalTimeS) {
       const s = geo.segs[geo.segs.length - 1];
-      return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh };
+      return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh, altM: s.altM };
     }
     for (const s of geo.segs) {
       if (elapsedS <= s.fromT + s.durS) {
         const t = s.durS > 0 ? (elapsedS - s.fromT) / s.durS : 0;
-        return { lat: s.a.lat + (s.b.lat - s.a.lat) * t, lng: s.a.lng + (s.b.lng - s.a.lng) * t, heading: s.brng, speedKmh: s.speedKmh };
+        return { lat: s.a.lat + (s.b.lat - s.a.lat) * t, lng: s.a.lng + (s.b.lng - s.a.lng) * t, heading: s.brng, speedKmh: s.speedKmh, altM: s.altM };
       }
     }
     const s = geo.segs[geo.segs.length - 1];
-    return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh };
+    return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh, altM: s.altM };
   }
 
   const UPDATE_INTERVAL_MS = 1000; // обновление позиции каждую секунду
@@ -1204,7 +1299,7 @@ renderStats();
     if (liveMarkers[key]) return;
     const geo = buildGeo(spawn, route, speedKmh);
     const marker = L.marker(spawn, {
-      icon: pickTargetIcon(type, iconFile, speedKmh),
+      icon: pickTargetIcon(type, iconFile, speedKmh, geo.segs[0] ? geo.segs[0].altM : 0),
       zIndexOffset: 1000,
       interactive: false,  // маркерам не нужны клики/hover — Leaflet не навешивает
       keyboard: false      // на них обработчики событий, это ощутимо на сотнях целей
@@ -1217,7 +1312,7 @@ renderStats();
     const rotEl = el ? el.querySelector('.live-rot') : null;
     const speedEl = el ? el.querySelector('.live-speed-line') : null;
 
-    const state = { marker, geo, launchAtMs, rotEl, speedEl, lastHeading: null, lastSpeedKmh: null, arrived: false };
+    const state = { marker, geo, launchAtMs, rotEl, speedEl, lastHeading: null, lastSpeedKmh: null, lastAltM: null, arrived: false };
     liveMarkers[key] = state;
 
     updateLiveState(state, key, Date.now()); // сразу ставим стартовую позицию, не дожидаясь общего тика
@@ -1246,9 +1341,11 @@ renderStats();
     // теперь подтягиваем фактическую скорость текущего сегмента маршрута
     // (если она была явно задана на вейпоинте) и обновляем только при изменении
     const roundedSpeed = Math.round(pos.speedKmh || 0);
-    if (roundedSpeed !== state.lastSpeedKmh) {
-      if (state.speedEl) state.speedEl.textContent = `${roundedSpeed} км/ч`;
+    const roundedAlt = Math.round(pos.altM || 0);
+    if (roundedSpeed !== state.lastSpeedKmh || roundedAlt !== state.lastAltM) {
+      if (state.speedEl) state.speedEl.textContent = speedLineText(roundedSpeed, roundedAlt);
       state.lastSpeedKmh = roundedSpeed;
+      state.lastAltM = roundedAlt;
     }
     if (elapsedS >= state.geo.totalTimeS && !state.arrived) {
       // цель дошла до конца маршрута — держим маркер ещё немного и убираем
@@ -1294,7 +1391,7 @@ renderStats();
 
     const spawn = Array.isArray(t.spawn) ? [Number(t.spawn[0]), Number(t.spawn[1])] : null;
     if (!spawn || !isFinite(spawn[0]) || !isFinite(spawn[1])) return;
-    const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1]), Number(p[2]) || 0]) : [];
+    const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1]), Number(p[2]) || 0, Number(p[3]) || 0]) : [];
     const speed = Number(t.speed) || 0;
     const spawnDelayMs = Math.max(0, (Number(t.spawnDelay ?? t.delay) || 0) * 1000);
     const baseAt = Number(t.launchedAt) || t.createdAt;
