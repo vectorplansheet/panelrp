@@ -4,8 +4,8 @@
 <meta charset="UTF-8">
 <title>ПУНКТ УПРАВЛЕНИЯ</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.css" />
+<script src="https://unpkg.com/maplibre-gl@4.7.1/dist/maplibre-gl.js"></script>
 
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.12.2/firebase-database-compat.js"></script>
@@ -132,6 +132,25 @@
   .template-btn:active { filter:brightness(1.15); }
   .template-btn.active { outline:2px solid #ffcf3d; outline-offset:-2px; }
 
+  /* ---- статистика запущенных целей ---- */
+  .stats-block { margin-bottom:10px; }
+  .stats-block:last-child { margin-bottom:0; }
+  .stats-title {
+    font-size:11px; font-weight:700; color: var(--amber);
+    margin-bottom:3px; letter-spacing:0.2px;
+  }
+  .stats-line {
+    font-size:11px; color: var(--row-text); background: var(--row-bg);
+    border:1px solid var(--row-border); border-radius:2px;
+    padding:2px 6px; margin-bottom:2px;
+  }
+  .stats-line.stats-empty { color: var(--text-dim); background:transparent; border-style:dashed; }
+  .stats-total {
+    font-size:11px; font-weight:700; color: var(--btn-text);
+    background: var(--table-head); border-radius:2px;
+    padding:3px 6px; margin-top:4px;
+  }
+
   .spin-row { display:flex; align-items:center; gap:6px; margin-bottom:6px; }
   .spin-row .lbl {
     font-size:10.5px; color: var(--table-head-tx); white-space:nowrap;
@@ -168,6 +187,8 @@
     background: #fff; color:#1a2412;
     border:1px solid #6d7d5e; border-radius:2px;
   }
+  .wp-alt-input { width:56px; padding:2px 4px; font-size:10.5px; background:#fff; color:#1a2412; border:1px solid #6d7d5e; border-radius:2px; }
+  .wp-alt-input:focus { outline:none; border-color: var(--amber); }
   .wp-speed-input:focus { outline:none; border-color: var(--amber); }
 
   #status { font-size:10.5px; margin-top:8px; min-height:14px; color: var(--table-head-tx); }
@@ -187,42 +208,39 @@
     background: linear-gradient(to bottom, var(--btn-top), var(--btn-bot));
     color: var(--btn-text); cursor:pointer;
   }
-  .leaflet-control-layers {
-    background: var(--frame-mid) !important; color: var(--row-text) !important;
-    border:1px solid var(--frame-edge) !important; font-size:11px !important;
+  .layers-ctrl {
+    background: var(--frame-mid); color: #eef1e2;
+    border:1px solid var(--frame-edge); border-radius:3px;
+    font-size:11px; padding:5px 8px; box-shadow:0 1px 4px rgba(0,0,0,0.5);
   }
-  .leaflet-control-layers label { color: #eef1e2 !important; }
+  .layers-ctrl label { display:block; color:#eef1e2; cursor:pointer; line-height:1.7; }
+  .layers-ctrl input { margin-right:5px; vertical-align:middle; }
+  .maplibregl-ctrl-top-left .maplibregl-ctrl { margin-bottom:6px; }
 
-  /* ---- подпись под движущимся маркером цели: тип, борт, скорость ---- */
-  .live-drone-label {
-    position:absolute; left:50%; transform:translateX(-50%);
-    white-space:nowrap; pointer-events:none;
-    background: rgba(255,255,255,0.6);
-    color:#0e0e0e;
-    font-size:10.5px; font-weight:700; letter-spacing:0.2px;
-    padding:2px 6px; border-radius:2px;
-    text-align:center; line-height:1.3;
-  }
-  body.labels-hidden .live-drone-label { display:none; }
-
-  /* подсказка браузеру заранее подготовить слой под трансформацию —
-     меньше перерасчётов layout/paint при повороте сотен маркеров */
-  .live-rot { will-change: transform; }
-
-  /* ---- плановые (статические) цели — пин-маркер + подпись сверху ---- */
-  .planned-label {
-    position:absolute; left:50%; top:0; transform:translateX(-50%);
-    white-space:nowrap; pointer-events:none;
-    background:#000000; color:#ffd6d2;
-    font-size:10px; font-weight:700; letter-spacing:0.2px;
-    padding:2px 6px;
-  }
-  body.planned-labels-hidden .planned-label { display:none; }
   #btnPickOnMap { flex:0 0 auto; padding:5px 9px; font-size:13px; }
   #btnPickOnMap.picking { outline:2px solid #ffcf3d; outline-offset:-2px; }
   #plannedTableBody tr { cursor:pointer; }
   #plannedTableBody tr td:last-child { cursor:pointer; }
 
+
+  /* ---- индикатор подлёта (футер секции «Построение цели») ---- */
+  .eta-bar {
+    display:flex; align-items:center; justify-content:space-between; gap:10px;
+    padding:6px 10px; background: var(--frame-dark);
+    border-top:1px solid var(--frame-edge); box-shadow: inset 0 2px 4px rgba(0,0,0,0.45);
+  }
+  .eta-cap { display:block; font-size:9px; letter-spacing:0.6px; text-transform:uppercase; color: var(--text-dim); }
+  .eta-time {
+    display:block; font-size:19px; font-weight:700; letter-spacing:1px; line-height:1.2;
+    font-family: Consolas, "Courier New", monospace; font-variant-numeric: tabular-nums;
+    color: var(--amber); text-shadow: 0 0 6px rgba(215,198,106,0.25);
+  }
+  .eta-time.dim { color:#445a48; text-shadow:none; }
+  .eta-side { text-align:right; font-size:11px; line-height:1.5; color: var(--table-head-tx); font-variant-numeric: tabular-nums; }
+  .eta-side span { display:block; }
+  td.q-eta { white-space:nowrap; font-variant-numeric: tabular-nums; }
+  .io-opt { display:flex; align-items:center; gap:6px; font-size:10.5px; color: var(--table-head-tx); margin-top:6px; cursor:pointer; }
+  button.routes-on { outline:2px solid #ffb347; outline-offset:-2px; }
 </style>
 </head>
 <body>
@@ -247,6 +265,9 @@
     <div class="toolbar">
       <button class="wide" id="btnToggleLabels">🏷 Скрыть подписи</button>
     </div>
+    <div class="toolbar">
+      <button class="wide" id="btnToggleRoutes">🧭 Показать маршруты целей</button>
+    </div>
 
     <div class="section">
       <div class="section-label">Построение цели</div>
@@ -262,6 +283,13 @@
           <button type="button" class="template-btn" data-min="300" data-max="370" data-type="Герань-3" data-icon="Geran-3.png">Герань-3<span class="tpl-range">300–370 км/ч</span></button>
           <button type="button" class="template-btn" data-min="400" data-max="430" data-type="Герань-4" data-icon="Geran-4.png">Герань-4<span class="tpl-range">400–430 км/ч</span></button>
           <button type="button" class="template-btn" data-min="500" data-max="550" data-type="Герань-5" data-icon="Geran-5.png">Герань-5<span class="tpl-range">500–550 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="5500" data-max="6000" data-type="Искандер-М" data-icon="Искандер-М.png">Искандер-М<span class="tpl-range">5500–6000 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="950" data-max="950" data-type="Х-101" data-icon="Х-101.png">Х-101<span class="tpl-range">950 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="600" data-max="700" data-type="Бандероль" data-icon="Бандероль.png">Бандероль<span class="tpl-range">600–700 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="6000" data-max="7000" data-type="Циркон" data-icon="Циркон.png">Циркон<span class="tpl-range">6000–7000 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="800" data-max="800" data-type="Су-34" data-icon="Су-34.png">Су-34<span class="tpl-range">800 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="950" data-max="950" data-type="Х-59" data-icon="Х-59.png">Х-59<span class="tpl-range">950 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="950" data-max="950" data-type="Калибр" data-icon="Калибр.png">Калибр<span class="tpl-range">950 км/ч</span></button>
         </div>
 
         <div class="spin-row">
@@ -270,9 +298,27 @@
           <span class="unit">км/ч</span>
         </div>
         <div class="spin-row">
+          <span class="lbl">Высота</span>
+          <input type="number" id="altInput" value="0" min="0">
+          <span class="unit">м</span>
+        </div>
+        <div class="spin-row">
           <span class="lbl">Задержка</span>
           <input type="number" id="delayInput" value="0" min="0">
           <span class="unit">сек</span>
+        </div>
+
+        <div class="spin-row" style="margin-top:8px;">
+          <label style="display:flex;align-items:center;gap:6px;font-size:11px;cursor:pointer;">
+            <input type="checkbox" id="descOn"> Пикирование на цель
+          </label>
+        </div>
+        <div class="spin-row">
+          <span class="lbl">до</span>
+          <input type="number" id="descTo" value="100" min="0">
+          <span class="unit">м за</span>
+          <input type="number" id="descKm" value="10" min="0" step="0.5">
+          <span class="unit">км</span>
         </div>
 
         <button class="wide" id="btnUndo">↩ Отменить точку</button>
@@ -280,10 +326,17 @@
 
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>№</th><th>Lat</th><th>Lng</th><th>Скор.</th></tr></thead>
+          <thead><tr><th>№</th><th>Lat</th><th>Lng</th><th>Скор.</th><th>Выс.</th></tr></thead>
           <tbody id="routeTableBody"></tbody>
         </table>
         <div class="table-empty" id="routeEmpty">клики по карте</div>
+      </div>
+      <div class="eta-bar" id="etaBar" title="Расчёт — если запустить очередь прямо сейчас, с учётом скорости на участках и задержки">
+        <div>
+          <span class="eta-cap" id="etaCap">Прилёт · Киев</span>
+          <span class="eta-time dim" id="etaArr">––:––:––</span>
+        </div>
+        <div class="eta-side"><span id="etaDur">—</span><span id="etaDist">—</span></div>
       </div>
     </div>
 
@@ -291,7 +344,7 @@
       <div class="section-label">Очередь целей (<span id="queueCount">0</span>)</div>
       <div class="table-wrap">
         <table class="data">
-          <thead><tr><th>№</th><th>Тип</th><th>Скор.</th><th>Точ.</th><th>Задр.</th><th></th></tr></thead>
+          <thead><tr><th>№</th><th>Тип</th><th>Скор.</th><th>Точ.</th><th>Задр.</th><th>Прилёт</th><th></th></tr></thead>
           <tbody id="queueTableBody"></tbody>
         </table>
         <div class="table-empty" id="queueEmpty">очередь пуста</div>
@@ -325,6 +378,12 @@
           <button id="btnTogglePlanned">👁 Скрыть метки</button>
           <button id="btnTogglePlannedLabels">🏷 Скрыть подписи</button>
         </div>
+        <div class="toolbar" style="margin-top:6px;">
+          <button id="btnExportPlanned" title="Сохранить все плановые цели в файл .json">⬇ Выгрузить в файл</button>
+          <button id="btnImportPlanned" title="Загрузить плановые цели из файла .json / .csv / .txt">⬆ Загрузить из файла</button>
+        </div>
+        <label class="io-opt"><input type="checkbox" id="plannedReplace"> заменять текущие при загрузке</label>
+        <input type="file" id="plannedFileInput" accept=".json,.csv,.txt,application/json,text/plain,text/csv" style="display:none">
         <button class="wide danger" id="btnClearPlanned" style="margin-top:6px;">🗑 Очистить все плановые цели</button>
       </div>
       <div class="table-wrap">
@@ -333,6 +392,21 @@
           <tbody id="plannedTableBody"></tbody>
         </table>
         <div class="table-empty" id="plannedEmpty">меток нет</div>
+      </div>
+    </div>
+
+    <div class="section" id="statsSection">
+      <div class="section-label collapsible" id="statsSectionHeader">
+        <span>Статистика запущенных целей</span>
+        <span class="arrow">▾</span>
+      </div>
+      <div class="section-body">
+        <div class="hint">
+          Считает только цели, которые ты сам запустил кнопкой «Запустить очередь»
+          (данные, пришедшие через синхронизацию от других — не учитываются).
+        </div>
+        <div id="statsBody"></div>
+        <button class="wide danger" id="btnResetStats" style="margin-top:8px;">↺ Сбросить статистику</button>
       </div>
     </div>
 
@@ -358,47 +432,255 @@ const firebaseConfig = {
 firebase.initializeApp(firebaseConfig);
 const db = firebase.database();
 
-/* ====================== Карта (спутник / OSM + переключатель слоёв + поиск координат) ====================== */
-const map = L.map('map').setView([49.0, 31.0], 6);
+/* ⏱ Серверное время Firebase: часы устройств расходятся, а цели считаются от меток времени. */
+let _srvOffset = 0;
+const srvNow = () => Date.now() + _srvOffset;
+db.ref('.info/serverTimeOffset').on('value', s => { _srvOffset = Number(s.val()) || 0; });
 
-const satBase = L.layerGroup([
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19,
-    attribution: 'Esri'
-  }),
-  L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', {
-    maxZoom: 19,
-    pane: 'overlayPane'
-  })
-]).addTo(map);
+/* ====================== Общие утилиты ====================== */
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+}
 
-const osmBase = L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+// расстояние между двумя {lat,lng} в метрах (та же формула и радиус, что был у Leaflet)
+function distM(a, b) {
+  const R = 6371000, r = x => x * Math.PI / 180;
+  const dLa = r(b.lat - a.lat), dLo = r(b.lng - a.lng);
+  const h = Math.sin(dLa/2)**2 + Math.cos(r(a.lat)) * Math.cos(r(b.lat)) * Math.sin(dLo/2)**2;
+  return 2 * R * Math.atan2(Math.sqrt(h), Math.sqrt(1 - h));
+}
+
+const EMPTY_FC = () => ({ type: 'FeatureCollection', features: [] });
+const ptFeature = (lng, lat, props) => ({ type: 'Feature', properties: props || {}, geometry: { type: 'Point', coordinates: [lng, lat] } });
+const lineFeature = (coords) => ({ type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: coords } });
+
+/* ====================== Карта (MapLibre GL: WebGL-рендер всего на GPU) ======================
+   Весь «динамический» контент (маркеры, линии, подписи, живые цели) теперь живёт не в DOM,
+   а в GeoJSON-источниках + слоях. Один setData на тик вместо сотен DOM-элементов — именно
+   поэтому 1000+ целей больше не тормозят. */
+const SAT_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+const SAT_REF_TILES = 'https://server.arcgisonline.com/ArcGIS/rest/services/Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}';
+const OSM_TILES = 'https://tile.openstreetmap.org/{z}/{x}/{y}.png';
+
+const sym = (extra) => Object.assign({
+  'symbol-z-order': 'source',      // не сортировать по Y — дешевле на тысячах символов
+  'icon-allow-overlap': true,
+  'icon-ignore-placement': true,   // коллизии не считаем вообще
+  'text-allow-overlap': true,
+  'text-ignore-placement': true
+}, extra);
+
+const mapStyle = {
+  version: 8,
+  glyphs: 'https://protomaps.github.io/basemaps-assets/fonts/{fontstack}/{range}.pbf', // поддерживает кириллицу
+  sources: {
+    sat:     { type: 'raster', tiles: [SAT_TILES],     tileSize: 256, maxzoom: 19, attribution: 'Esri' },
+    satRef:  { type: 'raster', tiles: [SAT_REF_TILES], tileSize: 256, maxzoom: 19 },
+    osm:     { type: 'raster', tiles: [OSM_TILES],     tileSize: 256, maxzoom: 19, attribution: '&copy; OpenStreetMap' },
+    draft:   { type: 'geojson', data: EMPTY_FC() },
+    queue:   { type: 'geojson', data: EMPTY_FC() },
+    planned: { type: 'geojson', data: EMPTY_FC() },
+    live:    { type: 'geojson', data: EMPTY_FC() },
+    routes:  { type: 'geojson', data: EMPTY_FC() },
+    search:  { type: 'geojson', data: EMPTY_FC() }
+  },
+  layers: [
+    { id: 'bg',      type: 'background', paint: { 'background-color': '#0e1a12' } },
+    { id: 'sat',     type: 'raster', source: 'sat' },
+    { id: 'satRef',  type: 'raster', source: 'satRef' },
+    { id: 'osm',     type: 'raster', source: 'osm', layout: { visibility: 'none' } },
+
+    { id: 'queue-line', type: 'line', source: 'queue', filter: ['==', ['geometry-type'], 'LineString'],
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#e03b3b', 'line-width': 2, 'line-opacity': 0.6 } },
+    { id: 'draft-line', type: 'line', source: 'draft', filter: ['==', ['geometry-type'], 'LineString'],
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#e03b3b', 'line-width': 3 } },
+
+    { id: 'queue-pins', type: 'symbol', source: 'queue', filter: ['==', ['geometry-type'], 'Point'],
+      layout: sym({ 'icon-image': 'pin-queue', 'icon-anchor': 'bottom' }) },
+    { id: 'draft-pins', type: 'symbol', source: 'draft', filter: ['==', ['geometry-type'], 'Point'],
+      layout: sym({ 'icon-image': ['get', 'pin'], 'icon-anchor': 'bottom' }) },
+
+    { id: 'planned-pins', type: 'symbol', source: 'planned',
+      layout: sym({ 'icon-image': 'pin-planned', 'icon-anchor': 'bottom' }) },
+    { id: 'planned-labels', type: 'symbol', source: 'planned', filter: ['!=', ['get', 'label'], ''],
+      layout: sym({
+        'text-field': ['get', 'label'], 'text-font': ['Noto Sans Medium'], 'text-size': 10,
+        'text-anchor': 'bottom', 'text-offset': [0, -2.2], 'text-max-width': 40,
+        'icon-image': 'label-bg-black', 'icon-text-fit': 'both', 'icon-text-fit-padding': [2, 6, 2, 6]
+      }),
+      paint: { 'text-color': '#ffd6d2' } },
+
+    { id: 'routes-line', type: 'line', source: 'routes', filter: ['==', ['geometry-type'], 'LineString'],
+      layout: { 'line-join': 'round', 'line-cap': 'round', visibility: 'none' },
+      paint: { 'line-color': '#ffb347', 'line-width': 1.6, 'line-opacity': 0.9, 'line-dasharray': [2, 2] } },
+    { id: 'routes-end', type: 'circle', source: 'routes', filter: ['==', ['geometry-type'], 'Point'],
+      layout: { visibility: 'none' },
+      paint: { 'circle-radius': 4, 'circle-color': '#ffb347', 'circle-stroke-width': 1.5, 'circle-stroke-color': '#10190f' } },
+    { id: 'routes-eta', type: 'symbol', source: 'routes', filter: ['==', ['geometry-type'], 'Point'],
+      layout: sym({
+        visibility: 'none',
+        'text-field': ['get', 'label'], 'text-font': ['Noto Sans Medium'], 'text-size': 10,
+        'text-anchor': 'top', 'text-offset': [0, 0.8], 'text-justify': 'center', 'text-max-width': 40,
+        'icon-image': 'label-bg-black', 'icon-text-fit': 'both', 'icon-text-fit-padding': [1, 5, 1, 5]
+      }),
+      paint: { 'text-color': '#ffe3a8' } },
+
+    { id: 'live-icons', type: 'symbol', source: 'live',
+      layout: sym({
+        'icon-image': ['get', 'icon'],
+        'icon-rotate': ['get', 'heading'],
+        'icon-rotation-alignment': 'map'
+      }) },
+    { id: 'live-labels', type: 'symbol', source: 'live', filter: ['has', 'label'],
+      layout: sym({
+        'text-field': ['get', 'label'], 'text-font': ['Noto Sans Medium'], 'text-size': 10.5,
+        'text-anchor': 'top', 'text-offset': [0, 1.75], 'text-justify': 'center', 'text-max-width': 40,
+        'icon-image': 'label-bg-white', 'icon-text-fit': 'both', 'icon-text-fit-padding': [1, 5, 1, 5]
+      }),
+      paint: { 'text-color': '#0e0e0e' } },
+
+    { id: 'search-pt', type: 'circle', source: 'search',
+      paint: { 'circle-radius': 8, 'circle-color': '#ffcf3d', 'circle-stroke-width': 2, 'circle-stroke-color': '#10190f' } }
+  ]
+};
+
+const map = new maplibregl.Map({
+  container: 'map',
+  style: mapStyle,
+  center: [31.0, 49.0],
+  zoom: 6,
   maxZoom: 19,
-  attribution: '&copy; OpenStreetMap'
+  dragRotate: false,          // как в Leaflet — карта всегда «севером вверх»
+  pitchWithRotate: false,
+  maxPitch: 0,
+  fadeDuration: 0,
+  attributionControl: { compact: true }
+});
+map.touchZoomRotate.disableRotation();
+map.keyboard.disableRotation();
+map.addControl(new maplibregl.NavigationControl({ showCompass: false }), 'top-left');
+
+/* ---- иконки (пины, фоны подписей, треугольник, PNG дронов) ---- */
+let mapLoaded = false;
+const onMapReady = [];
+function whenMapReady(fn) { mapLoaded ? fn() : onMapReady.push(fn); }
+
+function makePinImage(w, h, fill, stroke, dot) {
+  const pr = 2, c = document.createElement('canvas');
+  c.width = w * pr; c.height = h * pr;
+  const ctx = c.getContext('2d');
+  ctx.scale(w * pr / 22, h * pr / 30);
+  ctx.fillStyle = fill; ctx.strokeStyle = stroke; ctx.lineWidth = 1.5; ctx.lineJoin = 'round';
+  const path = new Path2D('M11 0C4.9 0 0 4.9 0 11c0 8 11 19 11 19s11-11 11-19C22 4.9 17.1 0 11 0z');
+  ctx.clearRect(0, 0, 22, 30);
+  ctx.fill(path); ctx.stroke(path);
+  ctx.fillStyle = dot; ctx.beginPath(); ctx.arc(11, 11, 4, 0, Math.PI * 2); ctx.fill();
+  return { data: ctx.getImageData(0, 0, c.width, c.height), pr };
+}
+function addPin(id, w, h, fill, stroke, dot) {
+  const p = makePinImage(w, h, fill, stroke, dot);
+  map.addImage(id, p.data, { pixelRatio: p.pr });
+}
+function addLabelBg(id, rgba) {
+  const c = document.createElement('canvas'); c.width = c.height = 8;
+  const ctx = c.getContext('2d');
+  ctx.fillStyle = rgba; ctx.fillRect(0, 0, 8, 8);
+  // растягиваемый «9-patch»: центр тянется под размер текста (icon-text-fit)
+  map.addImage(id, ctx.getImageData(0, 0, 8, 8), { stretchX: [[3, 5]], stretchY: [[3, 5]], content: [3, 3, 5, 5], pixelRatio: 1 });
+}
+function addTriangle() {
+  const s = 26, pr = 2, c = document.createElement('canvas');
+  c.width = c.height = s * pr;
+  const ctx = c.getContext('2d');
+  ctx.scale(pr, pr);
+  ctx.beginPath();
+  ctx.moveTo(13, 1); ctx.lineTo(24, 24); ctx.lineTo(13, 18); ctx.lineTo(2, 24); ctx.closePath();
+  ctx.fillStyle = '#000'; ctx.fill();
+  ctx.strokeStyle = '#fff'; ctx.lineWidth = 1.4; ctx.lineJoin = 'round'; ctx.stroke();
+  map.addImage('tri', ctx.getImageData(0, 0, c.width, c.height), { pixelRatio: pr });
+}
+
+const DRONE_ICON_SIZE = 30;
+const droneIconReady = {}; // { 'Geran-2.png': true }
+function loadDroneIcon(file) {
+  return new Promise(resolve => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const px = DRONE_ICON_SIZE * 2;
+        const c = document.createElement('canvas'); c.width = c.height = px;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(img, 0, 0, px, px);
+        map.addImage('drone-' + file, ctx.getImageData(0, 0, px, px), { pixelRatio: 2 });
+        droneIconReady[file] = true;
+      } catch (e) { console.warn('[icons] не удалось подготовить', file, e); }
+      resolve();
+    };
+    img.onerror = () => { console.warn('[icons] не найден файл', file, '— будет треугольник'); resolve(); };
+    img.src = encodeURI(file);
+  });
+}
+
+map.on('load', () => {
+  addPin('pin-start',   22, 30, '#4a9e6f', '#0e1712', '#0e1712');
+  addPin('pin-route',   22, 30, '#5fa6cf', '#0e1712', '#0e1712');
+  addPin('pin-queue',   22, 30, '#3a7ea5', '#0e1712', '#0e1712');
+  addPin('pin-planned', 14, 19, '#e0362f', '#2a0705', '#2a0705');
+  addLabelBg('label-bg-white', 'rgba(255,255,255,0.6)');
+  addLabelBg('label-bg-black', 'rgba(0,0,0,1)');
+  addTriangle();
+  mapLoaded = true;
+  onMapReady.splice(0).forEach(fn => fn());
+  // PNG-иконки дронов грузим в фоне; пока не загрузились — цели показываются треугольником
+  const files = [...new Set([...document.querySelectorAll('#targetTemplates .template-btn')].map(b => b.dataset.icon).filter(Boolean))];
+  files.forEach(loadDroneIcon);
 });
 
-L.control.layers({
-  'Супутник': satBase,
-  'OSM (карта)': osmBase
-}, null, { position: 'topleft', collapsed: false }).addTo(map);
+function setSrc(id, fc) {
+  if (!mapLoaded) return;
+  const s = map.getSource(id);
+  if (s) s.setData(fc);
+}
 
-/* ---- поиск по координатам ---- */
-const CoordSearch = L.Control.extend({
-  options: { position: 'topleft' },
-  onAdd: function() {
-    const wrap = L.DomUtil.create('div', 'leaflet-bar coord-search');
+/* ---- переключатель слоёв (спутник / OSM) ---- */
+class LayersControl {
+  onAdd() {
+    const wrap = document.createElement('div');
+    wrap.className = 'maplibregl-ctrl layers-ctrl';
     wrap.innerHTML = `
-      <input type="text" id="coordSearchInput" placeholder="напр. 50.4501, 30.5234">
-      <button id="coordSearchBtn" type="button">🔎</button>
-    `;
-    L.DomEvent.disableClickPropagation(wrap);
-    L.DomEvent.disableScrollPropagation(wrap);
+      <label><input type="radio" name="basemap" value="sat" checked> Супутник</label>
+      <label><input type="radio" name="basemap" value="osm"> OSM (карта)</label>`;
+    wrap.addEventListener('change', (e) => {
+      const sat = e.target.value === 'sat';
+      map.setLayoutProperty('sat', 'visibility', sat ? 'visible' : 'none');
+      map.setLayoutProperty('satRef', 'visibility', sat ? 'visible' : 'none');
+      map.setLayoutProperty('osm', 'visibility', sat ? 'none' : 'visible');
+    });
+    this._el = wrap;
     return wrap;
   }
-});
-map.addControl(new CoordSearch());
+  onRemove() { this._el.remove(); }
+}
+map.addControl(new LayersControl(), 'top-left');
 
-let coordSearchMarker = null;
+/* ---- поиск по координатам ---- */
+class CoordSearchControl {
+  onAdd() {
+    const wrap = document.createElement('div');
+    wrap.className = 'maplibregl-ctrl coord-search';
+    wrap.innerHTML = `
+      <input type="text" id="coordSearchInput" placeholder="напр. 50.4501, 30.5234">
+      <button id="coordSearchBtn" type="button">🔎</button>`;
+    this._el = wrap;
+    return wrap;
+  }
+  onRemove() { this._el.remove(); }
+}
+map.addControl(new CoordSearchControl(), 'top-left');
+
 function parseCoordString(str) {
   if (!str) return null;
   const cleaned = str.trim().replace(/[;]/g, ',').replace(/\s+/g, ' ');
@@ -416,15 +698,8 @@ function runCoordSearch() {
     if (statusEl) { statusEl.style.color = '#b5453f'; statusEl.textContent = '❌ Формат координат: lat, lng'; }
     return;
   }
-  if (coordSearchMarker) map.removeLayer(coordSearchMarker);
-  coordSearchMarker = L.marker(pt, {
-    icon: L.divIcon({
-      className: '',
-      html: `<div style="width:16px;height:16px;border-radius:50%;background:#ffcf3d;border:2px solid #10190f;box-shadow:0 0 6px #ffcf3d;"></div>`,
-      iconSize: [16, 16], iconAnchor: [8, 8]
-    })
-  }).addTo(map);
-  map.setView(pt, 14);
+  setSrc('search', { type: 'FeatureCollection', features: [ptFeature(pt[1], pt[0])] });
+  map.flyTo({ center: [pt[1], pt[0]], zoom: 14 });
   if (statusEl) { statusEl.style.color = '#6fce97'; statusEl.textContent = `📍 Найдено: ${pt[0].toFixed(5)}, ${pt[1].toFixed(5)}`; }
 }
 document.addEventListener('click', (e) => {
@@ -434,11 +709,9 @@ document.addEventListener('keydown', (e) => {
   if (e.target && e.target.id === 'coordSearchInput' && e.key === 'Enter') runCoordSearch();
 });
 
-let spawnPoint = null;
-let routePoints = [];
-let spawnMarker = null;
-let routeMarkers = [];
-let routeLine = null;
+/* ====================== Построение цели ====================== */
+let spawnPoint = null;   // [lat, lng]
+let routePoints = [];    // [lat, lng, speed, alt]
 
 /* ---- шаблоны целей: подставляют случайную скорость из диапазона + запоминают тип/иконку дрона ---- */
 let selectedTargetType = null;
@@ -449,8 +722,7 @@ document.querySelectorAll('#targetTemplates .template-btn').forEach(btn => {
     const min = Number(btn.dataset.min) || 0;
     const max = Number(btn.dataset.max) || min;
     const speed = Math.round(min + Math.random() * (max - min));
-    const speedInput = document.getElementById('speedInput');
-    speedInput.value = speed;
+    document.getElementById('speedInput').value = speed;
     document.querySelectorAll('#targetTemplates .template-btn').forEach(b => b.classList.remove('active'));
     btn.classList.add('active');
     selectedTargetType = btn.dataset.type || null;
@@ -463,37 +735,116 @@ document.getElementById('speedInput').addEventListener('input', () => {
   selectedTargetIcon = null;
 });
 
-let queue = [];
-let queueLayers = [];
+/* ====================== Время подлёта и время по Киеву ====================== */
+const KYIV_TZ = (() => {
+  for (const tz of ['Europe/Kyiv', 'Europe/Kiev']) { try { new Intl.DateTimeFormat('ru-RU', { timeZone: tz }); return tz; } catch (e) {} }
+  return 'UTC';
+})();
+const kyivTimeFmt  = new Intl.DateTimeFormat('ru-RU', { timeZone: KYIV_TZ, hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' });
+const kyivDayFmt   = new Intl.DateTimeFormat('en-CA', { timeZone: KYIV_TZ, year: 'numeric', month: '2-digit', day: '2-digit' });
+const kyivShortFmt = new Intl.DateTimeFormat('ru-RU', { timeZone: KYIV_TZ, day: '2-digit', month: '2-digit' });
 
-function pinIcon(color) {
-  return L.divIcon({
-    className: '',
-    html: `<svg width="22" height="30" viewBox="0 0 22 30" xmlns="http://www.w3.org/2000/svg">
-      <path d="M11 0C4.9 0 0 4.9 0 11c0 8 11 19 11 19s11-11 11-19C22 4.9 17.1 0 11 0z" fill="${color}" stroke="#0e1712" stroke-width="1.5"/>
-      <circle cx="11" cy="11" r="4" fill="#0e1712"/>
-    </svg>`,
-    iconSize: [22, 30],
-    iconAnchor: [11, 30]
+// время по Киеву (чч:мм:сс); если день отличается от refMs — добавляет дату
+function fmtKyiv(ms, refMs) {
+  let t = kyivTimeFmt.format(ms);
+  if (refMs != null && kyivDayFmt.format(ms) !== kyivDayFmt.format(refMs)) t += ' (' + kyivShortFmt.format(ms) + ')';
+  return t;
+}
+function fmtDur(s) {
+  s = Math.max(0, Math.round(s));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), sec = s % 60;
+  if (h > 0) return `${h} ч ${String(m).padStart(2, '0')} мин ${String(sec).padStart(2, '0')} с`;
+  if (m > 0) return `${m} мин ${String(sec).padStart(2, '0')} с`;
+  return `${sec} с`;
+}
+function fmtKm(m) { return (m / 1000).toFixed(m >= 100000 ? 0 : 1) + ' км'; }
+
+// Та же логика скоростей, что и в живой модели цели (buildGeo):
+// у точки прибытия своя скорость (>0), иначе действует скорость предыдущего участка.
+function estimateFlight(spawn, route, baseSpeed) {
+  const out = { dist: 0, timeS: 0, cum: [], bad: false };
+  if (!spawn) return out;
+  let prev = spawn, speed = Number(baseSpeed) || 0;
+  route.forEach(p => {
+    const d = distM({ lat: prev[0], lng: prev[1] }, { lat: p[0], lng: p[1] });
+    const ex = Number(p[2]);
+    if (isFinite(ex) && ex > 0) speed = ex;
+    if (speed <= 0) out.bad = true; else out.timeS += d / (speed / 3.6);
+    out.dist += d;
+    out.cum.push(out.timeS);
+    prev = p;
+  });
+  return out;
+}
+
+function updateEta() {
+  const set = (id, t) => { const e = document.getElementById(id); if (e) e.textContent = t; };
+  const arrEl = document.getElementById('etaArr');
+  const rows = document.querySelectorAll('#routeTableBody tr');
+  const reset = (txt) => {
+    arrEl.textContent = txt || '––:––:––'; arrEl.classList.add('dim');
+    set('etaCap', 'Прилёт · Киев'); set('etaDur', '—'); set('etaDist', '—');
+    rows.forEach(r => { r.title = ''; });
+  };
+  if (!spawnPoint || routePoints.length === 0) { reset(); return; }
+
+  const delayS = Math.max(0, Number(document.getElementById('delayInput').value) || 0);
+  const now = srvNow();
+  const startMs = now + delayS * 1000;
+  const est = estimateFlight(spawnPoint, routePoints, document.getElementById('speedInput').value);
+  set('etaDist', fmtKm(est.dist));
+  if (est.bad) { reset('нет скорости'); set('etaDist', fmtKm(est.dist)); return; }
+
+  const m = fmtKyiv(startMs + est.timeS * 1000, now).match(/^(\S+)(?: \((.+)\))?$/);
+  arrEl.textContent = m[1]; arrEl.classList.remove('dim');
+  set('etaCap', 'Прилёт · Киев' + (m[2] ? ' · ' + m[2] : ''));
+  set('etaDur', '≈ ' + fmtDur(est.timeS));
+  document.getElementById('etaBar').title = 'Старт ' + fmtKyiv(startMs, now) + ' (Киев). Расчёт — если запустить очередь сейчас.';
+  rows.forEach((r, i) => {
+    if (est.cum[i] == null) return;
+    r.title = 'Точка ' + (i + 1) + ': ' + fmtKyiv(startMs + est.cum[i] * 1000, now) + ' (через ' + fmtDur(est.cum[i]) + ')';
   });
 }
 
-function redrawCurrent() {
-  routeMarkers.forEach(m => map.removeLayer(m));
-  routeMarkers = [];
-  if (routeLine) { map.removeLayer(routeLine); routeLine = null; }
-
-  routePoints.forEach(pt => {
-    const m = L.marker([pt[0], pt[1]], { icon: pinIcon('#5fa6cf') }).addTo(map);
-    routeMarkers.push(m);
+function updateQueueEta() {
+  const now = srvNow();
+  document.querySelectorAll('#queueTableBody .q-eta').forEach((c, i) => {
+    const it = queue[i];
+    if (!it) return;
+    if (it.bad || !(it.flightS > 0)) { c.textContent = '—'; c.title = 'нет маршрута или не задана скорость'; return; }
+    const arr = now + ((Number(it.delay) || 0) + it.flightS) * 1000;
+    c.textContent = fmtKyiv(arr, now);
+    c.title = '≈ ' + fmtDur(it.flightS) + ' · ' + fmtKm(it.dist) + ' (если запустить сейчас, с учётом задержки)';
   });
+}
+setInterval(() => { updateEta(); updateQueueEta(); }, 1000);
 
+let queue = [];
+
+/* ---- слой «текущая цель» (старт + точки маршрута + красная линия) ---- */
+function renderDraftMap() {
+  const features = [];
   if (spawnPoint) {
-    const full = [spawnPoint, ...routePoints.map(p => [p[0], p[1]])];
-    if (full.length > 1) {
-      routeLine = L.polyline(full, { color:'#e03b3b', weight:3 }).addTo(map);
-    }
+    const full = [[spawnPoint[1], spawnPoint[0]], ...routePoints.map(p => [p[1], p[0]])];
+    if (full.length > 1) features.push(lineFeature(full));
+    features.push(ptFeature(spawnPoint[1], spawnPoint[0], { pin: 'pin-start' }));
   }
+  routePoints.forEach(p => features.push(ptFeature(p[1], p[0], { pin: 'pin-route' })));
+  setSrc('draft', { type: 'FeatureCollection', features });
+}
+
+/* ---- слой «очередь» (синие пины старта + линии маршрутов) ---- */
+function renderQueueMap() {
+  const features = [];
+  queue.forEach(item => {
+    if (item.route.length > 0) features.push(lineFeature([[item.spawn[1], item.spawn[0]], ...item.route.map(p => [p[1], p[0]])]));
+    features.push(ptFeature(item.spawn[1], item.spawn[0]));
+  });
+  setSrc('queue', { type: 'FeatureCollection', features });
+}
+
+function redrawCurrent() {
+  renderDraftMap();
 
   const tbody = document.getElementById('routeTableBody');
   const empty = document.getElementById('routeEmpty');
@@ -510,40 +861,91 @@ function redrawCurrent() {
         <td>${p[0].toFixed(4)}</td>
         <td>${p[1].toFixed(4)}</td>
         <td><input type="number" class="wp-speed-input" min="0" value="${p[2] ?? 0}"></td>
+        <td><input type="number" class="wp-alt-input" min="0" value="${p[3] ?? 0}"></td>
       `;
+      tr.querySelector('.wp-alt-input').addEventListener('input', (ev) => {
+        const v = Number(ev.target.value);
+        routePoints[i][3] = isFinite(v) && v >= 0 ? v : 0;
+      });
       tr.querySelector('.wp-speed-input').addEventListener('input', (ev) => {
         const v = Number(ev.target.value);
         routePoints[i][2] = isFinite(v) && v >= 0 ? v : 0;
+        updateEta();
       });
       tbody.appendChild(tr);
     });
   }
+  updateEta();
 }
 
 map.on('click', (e) => {
   // режим "указать точку кликом" для плановых целей (см. секцию ниже) забирает клик себе
   if (typeof window.handlePlannedMapClick === 'function' && window.handlePlannedMapClick(e)) return;
-  const latlng = [e.latlng.lat, e.latlng.lng];
+  const latlng = [e.lngLat.lat, e.lngLat.lng];
   if (!spawnPoint) {
     spawnPoint = latlng;
-    if (spawnMarker) map.removeLayer(spawnMarker);
-    spawnMarker = L.marker(latlng, { icon: pinIcon('#4a9e6f') }).addTo(map);
   } else {
     const wpSpeed = Number(document.getElementById('speedInput').value) || 0;
-    routePoints.push([latlng[0], latlng[1], wpSpeed]);
+    const wpAlt = Number(document.getElementById('altInput').value) || 0;
+    routePoints.push([latlng[0], latlng[1], wpSpeed, wpAlt]);
   }
   redrawCurrent();
 });
 
+/* ---- пикирование: высота постоянная по маршруту, падает только на последних N км до последней точки ---- */
+function applyDescent(base, from, to, km) {
+  const steps = 10;
+  const hav = (a, b) => distM({ lat: a[0], lng: a[1] }, { lat: b[0], lng: b[1] });
+  const path = [spawnPoint, ...base];
+  const cum = [0];
+  for (let i = 1; i < path.length; i++) cum.push(cum[i-1] + hav(path[i-1], path[i]));
+  const total = cum[cum.length - 1];
+  const Dd = Math.min(km * 1000, total);
+  const sd = total - Dd;
+
+  const at = (d) => {
+    for (let k = 0; k < path.length - 1; k++) {
+      if (d <= cum[k+1] || k === path.length - 2) {
+        const seg = cum[k+1] - cum[k];
+        const f = seg > 0 ? Math.min(1, Math.max(0, (d - cum[k]) / seg)) : 1;
+        const a = path[k], b = path[k+1];
+        return [a[0] + (b[0]-a[0])*f, a[1] + (b[1]-a[1])*f, b[2] ?? 0];
+      }
+    }
+  };
+
+  const marks = [];
+  for (let i = 1; i < path.length; i++) marks.push({ d: cum[i], orig: base[i-1] });
+  if (Dd > 0) {
+    if (sd > 1) marks.push({ d: sd, orig: null });
+    for (let j = 1; j < steps; j++) marks.push({ d: sd + Dd * j / steps, orig: null });
+  }
+  marks.sort((x, y) => x.d - y.d);
+  const clean = [];
+  marks.forEach(m => {
+    const last = clean[clean.length - 1];
+    if (last && Math.abs(last.d - m.d) < 1) {
+      if (!last.orig && m.orig) clean[clean.length - 1] = m;
+    } else clean.push(m);
+  });
+
+  const pts = clean.map(m => {
+    const pos = m.orig ? [m.orig[0], m.orig[1], m.orig[2] ?? 0] : at(m.d);
+    const f = Dd > 0 ? Math.min(1, Math.max(0, (m.d - sd) / Dd)) : 1;
+    return [pos[0], pos[1], pos[2], Math.round(from + (to - from) * f)];
+  });
+  pts[pts.length - 1][3] = Math.round(to);
+  return pts;
+}
+
 document.getElementById('btnUndo').addEventListener('click', () => {
   if (routePoints.length > 0) routePoints.pop();
-  else if (spawnPoint) { spawnPoint = null; if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; } }
+  else if (spawnPoint) spawnPoint = null;
   redrawCurrent();
 });
 
 document.getElementById('btnClear').addEventListener('click', () => {
   spawnPoint = null; routePoints = [];
-  if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; }
   redrawCurrent();
 });
 
@@ -552,6 +954,7 @@ function renderQueue() {
   const tbody = document.getElementById('queueTableBody');
   const empty = document.getElementById('queueEmpty');
   document.getElementById('queueCount').textContent = queue.length;
+  renderQueueMap();
 
   if (queue.length === 0) {
     tbody.innerHTML = '';
@@ -565,21 +968,20 @@ function renderQueue() {
     const tr = document.createElement('tr');
     tr.innerHTML = `
       <td>${i+1}</td>
-      <td>${item.type || '—'}</td>
+      <td>${escapeHtml(item.type || '—')}</td>
       <td>${item.speed}</td>
       <td>${item.route.length}</td>
       <td>+${item.delay}с</td>
+      <td class="q-eta">—</td>
       <td class="del-cell">✕</td>
     `;
     tr.querySelector('.del-cell').addEventListener('click', () => {
-      map.removeLayer(queueLayers[i].marker);
-      if (queueLayers[i].line) map.removeLayer(queueLayers[i].line);
-      queueLayers.splice(i, 1);
       queue.splice(i, 1);
       renderQueue();
     });
     tbody.appendChild(tr);
   });
+  updateQueueEta();
 }
 
 document.getElementById('btnAddQueue').addEventListener('click', () => {
@@ -593,17 +995,19 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
   const speed = Number(document.getElementById('speedInput').value) || 0;
   const delay = Number(document.getElementById('delayInput').value) || 0;
 
-  queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay, type: selectedTargetType, icon: selectedTargetIcon });
-
-  const marker = L.marker(spawnPoint, { icon: pinIcon('#3a7ea5') }).addTo(map);
-  let line = null;
-  if (routePoints.length > 0) {
-    line = L.polyline([spawnPoint, ...routePoints.map(p => [p[0], p[1]])], { color:'#e03b3b', weight:2, opacity:0.6 }).addTo(map);
+  // 📉 пикирование на цель: высота полёта = поле "Высота", падает до "до" за последние "км"
+  if (document.getElementById('descOn').checked && routePoints.length > 0) {
+    const cruise = Number(document.getElementById('altInput').value) || 0;
+    const toH = Math.max(0, Number(document.getElementById('descTo').value) || 0);
+    const km = Math.max(0, Number(document.getElementById('descKm').value) || 0);
+    routePoints = applyDescent(routePoints.slice(), cruise, toH, km);
   }
-  queueLayers.push({ marker, line });
+
+  const est = estimateFlight(spawnPoint, routePoints, speed);
+  queue.push({ spawn: spawnPoint, route: routePoints.slice(), speed, delay, type: selectedTargetType, icon: selectedTargetIcon,
+               flightS: est.timeS, dist: est.dist, bad: est.bad });
 
   spawnPoint = null; routePoints = [];
-  if (spawnMarker) { map.removeLayer(spawnMarker); spawnMarker = null; }
   redrawCurrent();
   renderQueue();
 
@@ -612,8 +1016,6 @@ document.getElementById('btnAddQueue').addEventListener('click', () => {
 });
 
 document.getElementById('btnClearQueue').addEventListener('click', () => {
-  queueLayers.forEach(l => { map.removeLayer(l.marker); if (l.line) map.removeLayer(l.line); });
-  queueLayers = [];
   queue = [];
   renderQueue();
 });
@@ -631,7 +1033,7 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
   statusEl.style.color = '#5fa6cf';
   statusEl.textContent = `Отправка ${queue.length} целей...`;
 
-  const launchedAt = Date.now();
+  const launchedAt = srvNow();
   const writes = queue.map(item => {
     const ref = db.ref('targets').push({
       spawn: item.spawn,
@@ -642,7 +1044,7 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
       type: item.type || null,
       icon: item.icon || null,
       launchedAt: launchedAt,
-      createdAt: Date.now()
+      createdAt: srvNow()
     });
     // самоочистка: удаляем запись из Firebase через (задержка цели + 5с) после отправки,
     // чтобы база не разрасталась — данные к этому моменту уже прочитаны index.html
@@ -657,8 +1059,7 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
     .then(() => {
       statusEl.style.color = '#6fce97';
       statusEl.textContent = `✅ Запущено целей: ${queue.length}`;
-      queueLayers.forEach(l => { map.removeLayer(l.marker); if (l.line) map.removeLayer(l.line); });
-      queueLayers = [];
+      registerLaunchedTargets(queue); // статистика считает только то, что ушло именно с этой кнопки
       queue = [];
       renderQueue();
     })
@@ -670,49 +1071,96 @@ document.getElementById('btnLaunchAll').addEventListener('click', () => {
 
 renderQueue();
 
+/* ====================== Статистика запущенных целей ======================
+   Считает только цели, отправленные именно этим кликом по "Запустить очередь"
+   в этой вкладке — цели, пришедшие через Firebase от других операторов, сюда
+   не попадают (см. registerLaunchedTargets, вызывается только из btnLaunchAll).
+   Хранится только в памяти вкладки — при перезагрузке страницы обнуляется. */
+const STATS_CATEGORIES = [
+  { title: 'БпЛА', totalLabel: 'Всего БпЛА', types: ['Герань-2', 'Герань-3', 'Герань-4', 'Герань-5', 'Гербера'] },
+  { title: 'Крылатые ракеты', totalLabel: 'Всего крылатых ракет', types: ['Х-101', 'Х-59', 'Бандероль', 'Калибр'] },
+  { title: 'Баллистические и гиперзвуковые ракеты', totalLabel: 'Всего баллистических и гиперзвуковых ракет', types: ['Искандер-М', 'Циркон'] }
+];
+
+let launchStats = {};
+
+function saveStats() {
+  // статистика больше не сохраняется между перезагрузками — функция оставлена
+  // как no-op, чтобы не менять остальной код, который её вызывает
+}
+
+function registerLaunchedTargets(items) {
+  items.forEach(item => {
+    const type = item && item.type;
+    if (!type) return; // цель без выбранного шаблона (тип не задан) в статистику не идёт
+    launchStats[type] = (launchStats[type] || 0) + 1;
+  });
+  saveStats();
+  renderStats();
+}
+
+function renderStats() {
+  const wrap = document.getElementById('statsBody');
+  if (!wrap) return;
+  wrap.innerHTML = STATS_CATEGORIES.map(cat => {
+    const rows = cat.types.map(t => ({ t, n: launchStats[t] || 0 })).filter(r => r.n > 0);
+    const total = rows.reduce((s, r) => s + r.n, 0);
+    const linesHtml = rows.length
+      ? rows.map(r => `<div class="stats-line">${r.n} ${escapeHtml(r.t)}</div>`).join('')
+      : `<div class="stats-line stats-empty">пока не запускалось</div>`;
+    return `<div class="stats-block">
+        <div class="stats-title">${escapeHtml(cat.title)}:</div>
+        ${linesHtml}
+        <div class="stats-total">${escapeHtml(cat.totalLabel)}: ${total}</div>
+      </div>`;
+  }).join('');
+}
+
+const statsHeaderEl = document.getElementById('statsSectionHeader');
+if (statsHeaderEl) {
+  statsHeaderEl.addEventListener('click', () => {
+    document.getElementById('statsSection').classList.toggle('collapsed');
+  });
+}
+
+document.getElementById('btnResetStats').addEventListener('click', () => {
+  if (!confirm('Обнулить статистику запущенных целей?')) return;
+  launchStats = {};
+  saveStats();
+  renderStats();
+});
+
+renderStats();
+
 /* ====================== Плановые (статические) цели на карте ======================
-   Это просто метки-ориентиры, которые оператор ставит сам по известным координатам —
-   без анимации и без сети. Ни одного таймера на маркер, поэтому даже 200 меток
-   практически не создают нагрузки — на порядок легче, чем "живые" цели. */
+   Метки-ориентиры, которые оператор ставит сам по известным координатам.
+   Теперь это один GeoJSON-слой: даже 200 меток с подписями — это 1 draw call. */
 (function() {
   const MAX_PLANNED = 200;
-  const plannedLayer = L.layerGroup().addTo(map);
-  const planned = []; // { id, lat, lng, label, marker }
+  const planned = []; // { id, lat, lng, label }
   let plannedVisible = true;
   let plannedLabelsVisible = true;
   let plannedPickMode = false;
   let nextPlannedId = 1;
 
-  function escapeHtmlPlanned(s) {
-    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  function renderPlannedMap() {
+    setSrc('planned', {
+      type: 'FeatureCollection',
+      features: planned.map(p => ptFeature(p.lng, p.lat, { label: p.label || '' }))
+    });
   }
 
-  // тот же силуэт пина, что и у точек маршрута (pinIcon), только в красном цвете
-  // и с подписью сверху — просто маркер, а не точка
-  const PIN_W = 14, PIN_H = 19, LABEL_H = 16, GAP = 2, WRAP_W = 130;
-  const WRAP_H = LABEL_H + GAP + PIN_H;
-
-  function plannedIcon(label) {
-    const labelHtml = label ? `<div class="planned-label">${escapeHtmlPlanned(label)}</div>` : '';
-    return L.divIcon({
-      className: '',
-      html: `<div style="position:relative; width:${WRAP_W}px; height:${WRAP_H}px; pointer-events:none;">
-               ${labelHtml}
-               <svg width="${PIN_W}" height="${PIN_H}" viewBox="0 0 22 30" xmlns="http://www.w3.org/2000/svg"
-                    style="position:absolute; left:50%; top:${LABEL_H + GAP}px; margin-left:${-PIN_W / 2}px;">
-                 <path d="M11 0C4.9 0 0 4.9 0 11c0 8 11 19 11 19s11-11 11-19C22 4.9 17.1 0 11 0z" fill="#e0362f" stroke="#2a0705" stroke-width="1.5"/>
-                 <circle cx="11" cy="11" r="4" fill="#2a0705"/>
-               </svg>
-             </div>`,
-      iconSize: [WRAP_W, WRAP_H],
-      iconAnchor: [WRAP_W / 2, LABEL_H + GAP + PIN_H]
-    });
+  function applyPlannedVisibility() {
+    if (!mapLoaded) return;
+    map.setLayoutProperty('planned-pins', 'visibility', plannedVisible ? 'visible' : 'none');
+    map.setLayoutProperty('planned-labels', 'visibility', plannedVisible && plannedLabelsVisible ? 'visible' : 'none');
   }
 
   function renderPlannedTable() {
     const tbody = document.getElementById('plannedTableBody');
     const empty = document.getElementById('plannedEmpty');
     document.getElementById('plannedCount').textContent = planned.length;
+    renderPlannedMap();
     if (planned.length === 0) {
       tbody.innerHTML = '';
       empty.style.display = 'block';
@@ -725,7 +1173,7 @@ renderQueue();
       tr.title = 'Клик — перейти к метке на карте';
       tr.innerHTML = `
         <td>${i + 1}</td>
-        <td>${escapeHtmlPlanned(p.label || '—')}</td>
+        <td>${escapeHtml(p.label || '—')}</td>
         <td>${p.lat.toFixed(4)}, ${p.lng.toFixed(4)}</td>
         <td class="del-cell" title="Удалить">✕</td>
       `;
@@ -734,7 +1182,7 @@ renderQueue();
         removePlanned(p.id);
       });
       tr.addEventListener('click', () => {
-        map.setView([p.lat, p.lng], Math.max(map.getZoom(), 13));
+        map.flyTo({ center: [p.lng, p.lat], zoom: Math.max(map.getZoom(), 13) });
       });
       tbody.appendChild(tr);
     });
@@ -743,25 +1191,18 @@ renderQueue();
   function removePlanned(id) {
     const idx = planned.findIndex(p => p.id === id);
     if (idx === -1) return;
-    plannedLayer.removeLayer(planned[idx].marker);
     planned.splice(idx, 1);
     renderPlannedTable();
   }
 
   function clearAllPlanned() {
-    planned.forEach(p => plannedLayer.removeLayer(p.marker));
     planned.length = 0;
     renderPlannedTable();
   }
 
   function addPlanned(lat, lng, label) {
     if (planned.length >= MAX_PLANNED) return false;
-    const marker = L.marker([lat, lng], {
-      icon: plannedIcon(label),
-      interactive: false,  // статичные метки без кликов/hover — легче для рендера
-      keyboard: false
-    }).addTo(plannedLayer);
-    planned.push({ id: nextPlannedId++, lat, lng, label, marker });
+    planned.push({ id: nextPlannedId++, lat, lng, label });
     renderPlannedTable();
     return true;
   }
@@ -802,7 +1243,7 @@ renderQueue();
   function setPickMode(on) {
     plannedPickMode = on;
     if (btnPick) btnPick.classList.toggle('picking', on);
-    map.getContainer().style.cursor = on ? 'crosshair' : '';
+    map.getCanvasContainer().style.cursor = on ? 'crosshair' : '';
     if (on && statusEl) { statusEl.style.color = '#5fa6cf'; statusEl.textContent = '📍 Кликните по карте, чтобы указать точку'; }
   }
   if (btnPick) {
@@ -811,7 +1252,7 @@ renderQueue();
   // вызывается общим обработчиком клика по карте (см. выше); возвращает true, если клик обработан здесь
   window.handlePlannedMapClick = function(e) {
     if (!plannedPickMode) return false;
-    coordInput.value = `${e.latlng.lat.toFixed(5)}, ${e.latlng.lng.toFixed(5)}`;
+    coordInput.value = `${e.lngLat.lat.toFixed(5)}, ${e.lngLat.lng.toFixed(5)}`;
     setPickMode(false);
     labelInput.focus();
     return true;
@@ -834,8 +1275,7 @@ renderQueue();
   if (btnTogglePlanned) {
     btnTogglePlanned.addEventListener('click', () => {
       plannedVisible = !plannedVisible;
-      if (plannedVisible) plannedLayer.addTo(map);
-      else map.removeLayer(plannedLayer);
+      applyPlannedVisibility();
       updateTogglePlannedBtn();
     });
     updateTogglePlannedBtn();
@@ -849,7 +1289,7 @@ renderQueue();
   if (btnTogglePlannedLabels) {
     btnTogglePlannedLabels.addEventListener('click', () => {
       plannedLabelsVisible = !plannedLabelsVisible;
-      document.body.classList.toggle('planned-labels-hidden', !plannedLabelsVisible);
+      applyPlannedVisibility();
       updateTogglePlannedLabelsBtn();
     });
     updateTogglePlannedLabelsBtn();
@@ -865,71 +1305,192 @@ renderQueue();
       sectionEl.classList.toggle('collapsed');
     });
   }
+
+  /* ---- выгрузка / загрузка плановых целей (JSON; на вход также CSV/TXT: «lat, lng, подпись» по строкам) ---- */
+  const btnExportPlanned = document.getElementById('btnExportPlanned');
+  const btnImportPlanned = document.getElementById('btnImportPlanned');
+  const plannedFileInput = document.getElementById('plannedFileInput');
+  const chkPlannedReplace = document.getElementById('plannedReplace');
+  const say = (msg, color) => { if (statusEl) { statusEl.style.color = color; statusEl.textContent = msg; } };
+
+  if (btnExportPlanned) btnExportPlanned.addEventListener('click', () => {
+    if (!planned.length) { say('❌ Нет плановых целей для выгрузки', '#b5453f'); return; }
+    const data = {
+      format: 'planned-targets', version: 1, exportedAt: new Date().toISOString(), count: planned.length,
+      targets: planned.map(p => ({ label: p.label || '', lat: +p.lat.toFixed(6), lng: +p.lng.toFixed(6) }))
+    };
+    const d = new Date(), pad = n => String(n).padStart(2, '0');
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }));
+    a.download = `planned-targets_${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}_${pad(d.getHours())}${pad(d.getMinutes())}.json`;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+    say(`⬇ Выгружено плановых целей: ${planned.length}`, '#6fce97');
+  });
+
+  function parsePlannedFile(text) {
+    const items = []; let bad = 0;
+    const push = (lat, lng, label) => {
+      lat = Number(lat); lng = Number(lng);
+      if (!isFinite(lat) || !isFinite(lng) || Math.abs(lat) > 90 || Math.abs(lng) > 180) { bad++; return; }
+      items.push({ lat, lng, label: String(label == null ? '' : label).trim().slice(0, 40) });
+    };
+    text = text.replace(/^\uFEFF/, '');
+    let json = null;
+    try { json = JSON.parse(text); } catch (e) {}
+    if (json !== null && typeof json === 'object') {
+      const arr = Array.isArray(json) ? json : (json.targets || json.planned || json.points || []);
+      (Array.isArray(arr) ? arr : []).forEach(it => {
+        if (Array.isArray(it)) push(it[0], it[1], it[2]);
+        else if (it && typeof it === 'object') push(it.lat ?? it.latitude, it.lng ?? it.lon ?? it.longitude, it.label ?? it.name ?? it.title);
+        else bad++;
+      });
+      return { items, bad };
+    }
+    text.split(/\r?\n/).forEach((line, i) => {
+      line = line.trim();
+      if (!line) return;
+      const m = line.match(/^(-?\d+(?:\.\d+)?)\s*[,;\t ]\s*(-?\d+(?:\.\d+)?)\s*[,;\t ]*(.*)$/);
+      if (!m) { if (i > 0) bad++; return; } // первая строка без цифр — заголовок CSV
+      push(m[1], m[2], m[3].replace(/^["']|["']$/g, ''));
+    });
+    return { items, bad };
+  }
+
+  if (btnImportPlanned && plannedFileInput) {
+    btnImportPlanned.addEventListener('click', () => plannedFileInput.click());
+    plannedFileInput.addEventListener('change', () => {
+      const f = plannedFileInput.files && plannedFileInput.files[0];
+      if (!f) return;
+      const r = new FileReader();
+      r.onerror = () => { plannedFileInput.value = ''; say('❌ Не удалось прочитать файл', '#b5453f'); };
+      r.onload = () => {
+        plannedFileInput.value = '';
+        const { items, bad } = parsePlannedFile(String(r.result || ''));
+        if (!items.length) { say('❌ В файле не найдено ни одной корректной цели', '#b5453f'); return; }
+        if (chkPlannedReplace && chkPlannedReplace.checked) planned.length = 0;
+        let added = 0;
+        for (const it of items) {
+          if (planned.length >= MAX_PLANNED) break;
+          planned.push({ id: nextPlannedId++, lat: it.lat, lng: it.lng, label: it.label });
+          added++;
+        }
+        renderPlannedTable();
+        if (added) {
+          const b = new maplibregl.LngLatBounds();
+          items.slice(0, added).forEach(it => b.extend([it.lng, it.lat]));
+          map.fitBounds(b, { padding: 60, maxZoom: 12, duration: 600 });
+        }
+        const skipped = items.length - added;
+        let msg = `⬆ Загружено плановых целей: ${added}`;
+        if (skipped) msg += `, не поместилось (лимит ${MAX_PLANNED}): ${skipped}`;
+        if (bad) msg += `, некорректных строк: ${bad}`;
+        say(msg, (skipped || bad) ? '#d7c66a' : '#6fce97');
+      };
+      r.readAsText(f, 'utf-8');
+    });
+  }
+
+  whenMapReady(() => { renderPlannedMap(); applyPlannedVisibility(); });
 })();
 
 /* ====================== Живая трансляция целей на карте ПУ (в реальном времени) ======================
-   Идея: не опрашивать сервер раз в минуту, а один раз получить полное описание цели
-   (точка старта, маршрут, скорость, время запуска) и дальше КАЖДЫЙ кадр (через
-   requestAnimationFrame) самостоятельно вычислять, где цель должна быть прямо сейчас,
+   Принцип прежний: цель не опрашивает сервер, а сама вычисляет, где она должна быть сейчас,
    по формуле "пройденное расстояние = скорость × время с момента запуска".
-   Это тот же принцип, что уже использует index.html — поэтому обе карты идут в идеальной
-   синхронизации, без задержек и без лишнего трафика с сервера. */
-(function() {
-  const liveMarkers = {};
-  const panelStartTime = Date.now();
 
-  // отдельный слой для живых целей — чтобы одной кнопкой прятать/показывать их все разом
-  const liveLayer = L.layerGroup().addTo(map);
+   Что изменилось: вместо N DOM-маркеров Leaflet (по одному элементу + setLatLng на каждую цель)
+   теперь ОДИН GeoJSON-источник. Раз в тик мы правим координаты внутри уже существующих
+   Feature-объектов и делаем один source.setData(). Разбор геометрии и раскладку символов
+   делает воркер MapLibre, отрисовка — на GPU. Главный поток почти свободен даже на 1000+ целей. */
+(function() {
+  const live = new Map();   // key -> state
+  let featuresDirty = true; // нужно ли пересобрать массив features (добавили/удалили цель)
+  const fc = EMPTY_FC();
+  let panelStartTime = Date.now();
+
+  /* ---- показать/скрыть цели и подписи ---- */
   let liveVisible = true;
+  let labelsVisible = true;
+  function applyLiveVisibility() {
+    if (!mapLoaded) return;
+    map.setLayoutProperty('live-icons', 'visibility', liveVisible ? 'visible' : 'none');
+    map.setLayoutProperty('live-labels', 'visibility', liveVisible && labelsVisible ? 'visible' : 'none');
+  }
 
   const toggleBtn = document.getElementById('btnToggleLive');
   function updateToggleBtn() {
-    if (!toggleBtn) return;
-    toggleBtn.textContent = liveVisible ? '👁 Скрыть цели' : '👁‍🗨 Показать цели';
+    if (toggleBtn) toggleBtn.textContent = liveVisible ? '👁 Скрыть цели' : '👁‍🗨 Показать цели';
   }
   if (toggleBtn) {
     toggleBtn.addEventListener('click', () => {
       liveVisible = !liveVisible;
-      if (liveVisible) liveLayer.addTo(map);
-      else map.removeLayer(liveLayer);
+      applyLiveVisibility();
       updateToggleBtn();
     });
     updateToggleBtn();
   }
 
-  // переключатель подписей с названием дрона над маркерами (сами иконки/треугольники остаются)
-  let labelsVisible = true;
   const toggleLabelsBtn = document.getElementById('btnToggleLabels');
   function updateToggleLabelsBtn() {
-    if (!toggleLabelsBtn) return;
-    toggleLabelsBtn.textContent = labelsVisible ? '🏷 Скрыть подписи' : '🏷 Показать подписи';
+    if (toggleLabelsBtn) toggleLabelsBtn.textContent = labelsVisible ? '🏷 Скрыть подписи' : '🏷 Показать подписи';
   }
   if (toggleLabelsBtn) {
     toggleLabelsBtn.addEventListener('click', () => {
       labelsVisible = !labelsVisible;
-      document.body.classList.toggle('labels-hidden', !labelsVisible);
+      applyLiveVisibility();
       updateToggleLabelsBtn();
     });
     updateToggleLabelsBtn();
   }
 
-  // чёрный треугольник, острие смотрит на север (0°) — поворачиваем по фактическому курсу
-  // используется для целей без распознанного типа дрона (без шаблона)
-  function triangleIcon() {
-    return L.divIcon({
-      className: '',
-      html: `<div class="live-rot" style="width:26px;height:26px;transform:rotate(0deg);">
-               <svg viewBox="0 0 26 26" width="26" height="26" xmlns="http://www.w3.org/2000/svg">
-                 <polygon points="13,1 24,24 13,18 2,24" fill="#000000" stroke="#ffffff" stroke-width="1.4" stroke-linejoin="round"/>
-               </svg>
-             </div>`,
-      iconSize: [26, 26],
-      iconAnchor: [13, 13]
-    });
+  /* ---- 🧭 будущие маршруты всех целей + время прилёта (по Киеву) в конце каждого маршрута ----
+     Линия строится от ТЕКУЩЕЙ позиции цели до конца маршрута (пройденная часть не рисуется);
+     у цели, что ещё не стартовала (задержка), показан весь маршрут. Обновляется раз в секунду. */
+  let routesVisible = false, routesDirty = false, lastRoutesAt = 0;
+
+  function buildRoutesFC(now) {
+    const feats = [];
+    for (const st of live.values()) {
+      const geo = st.geo;
+      if (!geo.segs.length || st.finished) continue;
+      const elapsedS = (now - st.launchAtMs) / 1000;
+      if (elapsedS >= geo.totalTimeS) continue;
+      let coords;
+      if (elapsedS <= 0) {
+        coords = geo.pts.map(p => [p[1], p[0]]);
+      } else {
+        const pos = positionAt(geo, elapsedS);
+        coords = [[pos.lng, pos.lat]];
+        for (let i = pos.seg + 1; i < geo.pts.length; i++) coords.push([geo.pts[i][1], geo.pts[i][0]]);
+      }
+      if (coords.length < 2) continue;
+      feats.push(lineFeature(coords));
+      if (st.etaLabel === null) st.etaLabel = (st.firstLine ? st.firstLine + '\n' : '') + 'приб. ' + fmtKyiv(st.etaMs, now);
+      const end = geo.pts[geo.pts.length - 1];
+      feats.push(ptFeature(end[1], end[0], { label: st.etaLabel }));
+    }
+    return { type: 'FeatureCollection', features: feats };
   }
 
-  function escapeHtml(s) {
-    return String(s).replace(/[&<>"']/g, c => ({ '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#39;' }[c]));
+  function applyRoutesVisibility() {
+    if (!mapLoaded) return;
+    ['routes-line', 'routes-end', 'routes-eta'].forEach(id => map.setLayoutProperty(id, 'visibility', routesVisible ? 'visible' : 'none'));
+  }
+  const toggleRoutesBtn = document.getElementById('btnToggleRoutes');
+  function updateToggleRoutesBtn() {
+    if (!toggleRoutesBtn) return;
+    toggleRoutesBtn.textContent = routesVisible ? '🧭 Скрыть маршруты целей' : '🧭 Показать маршруты целей';
+    toggleRoutesBtn.classList.toggle('routes-on', routesVisible);
+  }
+  if (toggleRoutesBtn) {
+    toggleRoutesBtn.addEventListener('click', () => {
+      routesVisible = !routesVisible;
+      applyRoutesVisibility();
+      updateToggleRoutesBtn();
+      if (routesVisible) { const n = srvNow(); setSrc('routes', buildRoutesFC(n)); lastRoutesAt = n; }
+      else setSrc('routes', EMPTY_FC());
+    });
+    updateToggleRoutesBtn();
   }
 
   /* ---- бортовые номера дронов ----
@@ -979,48 +1540,17 @@ renderQueue();
     'Герань-5': 'Г5'
   };
 
-  // строка вида "Г2,Ы-92312" + отдельно скорость "193 км/ч"; у Герань-5 борт не пишется
-  function buildDroneLabelLines(type, speedKmh) {
+  // строка скорости + текущая высота (если известна): "425 км/ч 4000 м"
+  function speedLineText(speedKmh, altM) {
+    const base = `${Math.round(Number(speedKmh) || 0)} км/ч`;
+    return altM > 0 ? `${base} ${Math.round(altM)} м` : base;
+  }
+
+  // первая строка подписи: "Г2,Ы-92312" (тип + борт). Генерируется один раз на цель.
+  function buildFirstLine(type) {
     const code = TYPE_CODE[type] || type || '';
-    const speedTxt = `${Math.round(Number(speedKmh) || 0)} км/ч`;
     const board = type === 'Герань-5' ? null : generateBoardNumber(type);
-    const firstLine = board ? `${code},${board}` : code;
-    return [firstLine, speedTxt];
-  }
-
-  // иконка распознанного дрона (Geran-2.png, Geran-3.png, Geran-4.png, Geran-5.png, Gerbera.png) —
-  // чёрный силуэт с белой обводкой (drop-shadow-обводка вокруг PNG с прозрачным фоном),
-  // поворачивается по курсу; под ней держится неповорачивающаяся подпись (тип, борт, скорость)
-  // на полупрозрачном белом фоне чёрным текстом.
-  const DRONE_ICON_SIZE = 30;
-  const DRONE_LABEL_H = 26; // под две строки текста
-  const DRONE_GAP = 3;
-  const DRONE_WRAP_W = 120;
-  const DRONE_WRAP_H = DRONE_ICON_SIZE + DRONE_GAP + DRONE_LABEL_H;
-
-  function droneIcon(iconFile, lines) {
-    const labelHtml = lines
-      ? `<div class="live-drone-label" style="top:${DRONE_ICON_SIZE + DRONE_GAP}px;">${lines.map(l => `<div>${escapeHtml(l)}</div>`).join('')}</div>`
-      : '';
-    return L.divIcon({
-      className: '',
-      html: `<div style="position:relative; width:${DRONE_WRAP_W}px; height:${DRONE_WRAP_H}px; pointer-events:none;">
-               <div class="live-rot" style="position:absolute; left:50%; top:0; width:${DRONE_ICON_SIZE}px; height:${DRONE_ICON_SIZE}px; margin-left:${-DRONE_ICON_SIZE/2}px; transform:rotate(0deg);">
-                 <img src="${iconFile}" width="${DRONE_ICON_SIZE}" height="${DRONE_ICON_SIZE}"
-                   style="display:block; width:100%; height:100%;" />
-               </div>
-               ${labelHtml}
-             </div>`,
-      iconSize: [DRONE_WRAP_W, DRONE_WRAP_H],
-      iconAnchor: [DRONE_WRAP_W / 2, DRONE_ICON_SIZE / 2]
-    });
-  }
-
-  // выбор иконки: если у цели известен файл иконки дрона — рисуем её (с подписью снизу),
-  // иначе — обычный чёрный треугольник без подписи
-  function pickTargetIcon(type, iconFile, speedKmh) {
-    if (iconFile) return droneIcon(iconFile, buildDroneLabelLines(type, speedKmh));
-    return triangleIcon();
+    return board ? `${code},${board}` : code;
   }
 
   function bearingDeg(a, b) {
@@ -1036,10 +1566,11 @@ renderQueue();
     const segs = [];
     let totalDist = 0, totalTimeS = 0;
     let prevSpeedKmh = Number(baseSpeedKmh) || 0;
+    let prevAltM = 0; // 🏔️ высота (м) — 4-й элемент точки; 0 = не задана
     for (let i = 0; i < pts.length - 1; i++) {
-      const a = L.latLng(pts[i][0], pts[i][1]);
-      const b = L.latLng(pts[i + 1][0], pts[i + 1][1]);
-      const d = a.distanceTo(b);
+      const a = { lat: pts[i][0], lng: pts[i][1] };
+      const b = { lat: pts[i + 1][0], lng: pts[i + 1][1] };
+      const d = distM(a, b);
 
       // 🎚️ скорость этого отрезка: у точки прибытия (route[i]) может быть своя
       // скорость (3-й элемент), иначе — скорость предыдущего отрезка (или базовая для первого).
@@ -1047,123 +1578,195 @@ renderQueue();
       const explicitSpeed = Array.isArray(routePt) ? Number(routePt[2]) : NaN;
       const segSpeedKmh = (isFinite(explicitSpeed) && explicitSpeed > 0) ? explicitSpeed : prevSpeedKmh;
       prevSpeedKmh = segSpeedKmh;
+      const explicitAlt = Array.isArray(routePt) ? Number(routePt[3]) : NaN;
+      const segAltM = (isFinite(explicitAlt) && explicitAlt > 0) ? explicitAlt : prevAltM;
+      prevAltM = segAltM;
 
       const segSpeedMps = segSpeedKmh / 3.6;
       const durS = segSpeedMps > 0 ? d / segSpeedMps : 0;
 
-      segs.push({ a, b, d, from: totalDist, fromT: totalTimeS, durS, brng: bearingDeg(a, b), speedKmh: segSpeedKmh });
+      segs.push({ a, b, d, from: totalDist, fromT: totalTimeS, durS, brng: bearingDeg(a, b), speedKmh: segSpeedKmh, altM: segAltM });
       totalDist += d;
       totalTimeS += durS;
     }
     return { pts, segs, totalDist, totalTimeS };
   }
 
-  // возвращает {lat, lng, heading} по прошедшему времени (сек) — учитывает переменную скорость по сегментам
+  // возвращает {lat, lng, heading, speedKmh, altM} по прошедшему времени (сек) — учитывает переменную скорость по сегментам
   function positionAt(geo, elapsedS) {
     const last = geo.pts[geo.pts.length - 1];
-    if (geo.segs.length === 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: 0 };
-    if (elapsedS <= 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: geo.segs[0].brng };
+    if (geo.segs.length === 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: 0, speedKmh: 0, altM: 0, seg: 0 };
+    if (elapsedS <= 0) return { lat: geo.pts[0][0], lng: geo.pts[0][1], heading: geo.segs[0].brng, speedKmh: geo.segs[0].speedKmh, altM: geo.segs[0].altM, seg: 0 };
+    const lastIdx = geo.segs.length - 1;
     if (elapsedS >= geo.totalTimeS) {
-      const s = geo.segs[geo.segs.length - 1];
-      return { lat: last[0], lng: last[1], heading: s.brng };
+      const s = geo.segs[lastIdx];
+      return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh, altM: s.altM, seg: lastIdx };
     }
-    for (const s of geo.segs) {
+    for (let i = 0; i < geo.segs.length; i++) {
+      const s = geo.segs[i];
       if (elapsedS <= s.fromT + s.durS) {
         const t = s.durS > 0 ? (elapsedS - s.fromT) / s.durS : 0;
-        return { lat: s.a.lat + (s.b.lat - s.a.lat) * t, lng: s.a.lng + (s.b.lng - s.a.lng) * t, heading: s.brng };
+        return { lat: s.a.lat + (s.b.lat - s.a.lat) * t, lng: s.a.lng + (s.b.lng - s.a.lng) * t, heading: s.brng, speedKmh: s.speedKmh, altM: s.altM, seg: i };
       }
     }
-    const s = geo.segs[geo.segs.length - 1];
-    return { lat: last[0], lng: last[1], heading: s.brng };
+    const s = geo.segs[lastIdx];
+    return { lat: last[0], lng: last[1], heading: s.brng, speedKmh: s.speedKmh, altM: s.altM, seg: lastIdx };
   }
 
-  const UPDATE_INTERVAL_MS = 1000; // обновление позиции каждую секунду
+  function iconFor(iconFile) {
+    return (iconFile && droneIconReady[iconFile]) ? 'drone-' + iconFile : 'tri';
+  }
 
   function spawnLiveTarget(key, spawn, route, speedKmh, launchAtMs, type, iconFile) {
-    if (liveMarkers[key]) return;
+    if (live.has(key)) return;
     const geo = buildGeo(spawn, route, speedKmh);
-    const marker = L.marker(spawn, {
-      icon: pickTargetIcon(type, iconFile, speedKmh),
-      zIndexOffset: 1000,
-      interactive: false,  // маркерам не нужны клики/hover — Leaflet не навешивает
-      keyboard: false      // на них обработчики событий, это ощутимо на сотнях целей
-    }).addTo(liveLayer);
+    const firstLine = iconFile ? buildFirstLine(type) : null; // подпись только у целей с шаблоном
+    const startAlt = geo.segs[0] ? geo.segs[0].altM : 0;
 
-    // элемент поворота ищем через querySelector один раз при спавне и кэшируем,
-    // а не на каждом тике для каждой цели (было: 400 querySelector в секунду)
-    const el = marker.getElement();
-    const rotEl = el ? el.querySelector('.live-rot') : null;
+    const props = { icon: iconFor(iconFile), heading: geo.segs[0] ? geo.segs[0].brng : 0 };
+    if (firstLine !== null) props.label = firstLine + '\n' + speedLineText(speedKmh, startAlt);
+    const feature = ptFeature(spawn[1], spawn[0], props);
 
-    const state = { marker, geo, launchAtMs, rotEl, lastHeading: null, arrived: false };
-    liveMarkers[key] = state;
+    const state = {
+      key, geo, launchAtMs, iconFile, firstLine, feature,
+      etaMs: launchAtMs + geo.totalTimeS * 1000, etaLabel: null,
+      lastKey: '', finished: false, arrived: false
+    };
+    live.set(key, state);
+    featuresDirty = true;
 
-    updateLiveState(state, key, Date.now()); // сразу ставим стартовую позицию, не дожидаясь общего тика
-    ensureMasterTicker();
-  }
-
-  // ---- единый тикер на ВСЕ цели разом ---------------------------------
-  // Раньше у каждой цели был свой setTimeout, который сам себя
-  // перезапускал раз в секунду — при 400 дронах это 400 независимых
-  // таймеров и колбэков в секунду, из-за чего вкладка подтормаживала.
-  // Теперь один общий таймер раз в секунду проходит по всем целям
-  // одним циклом — число таймеров больше не растёт вместе с числом дронов.
-  let masterTickerRunning = false;
-
-  function updateLiveState(state, key, now) {
-    const elapsedS = (now - state.launchAtMs) / 1000;
-    if (elapsedS < 0) return; // ещё не запущена — ждём следующего тика
-    const pos = positionAt(state.geo, elapsedS);
-    state.marker.setLatLng([pos.lat, pos.lng]);
-    // пишем в стиль только когда курс реально изменился — меньше лишних style-записей
-    if (pos.heading !== state.lastHeading) {
-      if (state.rotEl) state.rotEl.style.transform = `rotate(${pos.heading}deg)`;
-      state.lastHeading = pos.heading;
-    }
-    if (elapsedS >= state.geo.totalTimeS && !state.arrived) {
-      // цель дошла до конца маршрута — держим маркер ещё немного и убираем
-      state.arrived = true;
-      setTimeout(() => {
-        if (liveMarkers[key]) { liveLayer.removeLayer(liveMarkers[key].marker); delete liveMarkers[key]; }
-      }, 15000);
-    }
-  }
-
-  function masterTick() {
-    const now = Date.now();
-    for (const key in liveMarkers) {
-      const state = liveMarkers[key];
-      if (state) updateLiveState(state, key, now);
-    }
-    setTimeout(masterTick, UPDATE_INTERVAL_MS);
-  }
-
-  function ensureMasterTicker() {
-    if (masterTickerRunning) return;
-    masterTickerRunning = true;
-    setTimeout(masterTick, UPDATE_INTERVAL_MS);
+    updateLiveState(state, srvNow());
+    ensureTicker();
   }
 
   function removeLiveTarget(key) {
-    const st = liveMarkers[key];
-    if (!st) return;
-    liveLayer.removeLayer(st.marker);
-    delete liveMarkers[key];
+    if (!live.delete(key)) return;
+    try { db.ref('live/' + key).remove().catch(() => {}); } catch (e) {}
+    featuresDirty = true;
+    ensureTicker();
   }
+
+  // обновляет координаты/курс/подпись внутри уже существующего Feature; возвращает true, если что-то поменялось
+  function updateLiveState(state, now) {
+    if (state.finished) {
+      // дошла до конца — позиция уже финальная, но PNG-иконка могла дозагрузиться позже
+      const ic = iconFor(state.iconFile);
+      if (state.feature.properties.icon !== ic) { state.feature.properties.icon = ic; return true; }
+      return false;
+    }
+    const elapsedS = (now - state.launchAtMs) / 1000;
+    if (elapsedS < 0) {
+      const ic = iconFor(state.iconFile);
+      if (state.feature.properties.icon !== ic) { state.feature.properties.icon = ic; return true; }
+      return false; // ещё не запущена — стоит на старте
+    }
+    const pos = positionAt(state.geo, elapsedS);
+    const f = state.feature, c = f.geometry.coordinates, p = f.properties;
+    c[0] = pos.lng; c[1] = pos.lat;
+    p.heading = pos.heading;
+    p.icon = iconFor(state.iconFile);
+    if (state.firstLine !== null) {
+      const sp = Math.round(pos.speedKmh || 0), al = Math.round(pos.altM || 0);
+      const k = sp + '|' + al;
+      if (k !== state.lastKey) { // строку собираем только когда скорость/высота реально поменялись
+        p.label = state.firstLine + '\n' + speedLineText(sp, al);
+        state.lastKey = k;
+      }
+    }
+    if (elapsedS >= state.geo.totalTimeS) {
+      state.finished = true;
+      if (!state.arrived) {
+        // цель дошла до конца маршрута — держим маркер ещё немного и убираем
+        state.arrived = true;
+        const key = state.key;
+        setTimeout(() => removeLiveTarget(key), 15000);
+      }
+    }
+    return true;
+  }
+
+  /* ---- единый тикер на ВСЕ цели разом ----
+     Один таймер → один проход по целям → один setData. Интервал подстраивается
+     под количество целей: до ~300 — 4 раза в секунду (плавное движение),
+     дальше реже, чтобы воркер успевал. Пока вкладка скрыта — ничего не считаем
+     (позиции всё равно вычисляются от времени, при возврате всё сразу «встаёт» на место). */
+  let tickerRunning = false;
+  const tickInterval = () => live.size > 700 ? 500 : live.size > 300 ? 350 : 250;
+
+  function tick() {
+    if (!live.size && !featuresDirty) { tickerRunning = false; return; }
+    if (mapLoaded && !document.hidden) {
+      const now = srvNow();
+      let changed = featuresDirty;
+      for (const st of live.values()) { if (updateLiveState(st, now)) changed = true; }
+      if (featuresDirty) {
+        fc.features = Array.from(live.values(), s => s.feature);
+        featuresDirty = false;
+        routesDirty = true;
+      }
+      if (changed) setSrc('live', fc);
+      if (routesVisible && (routesDirty || now - lastRoutesAt >= 1000)) {
+        setSrc('routes', buildRoutesFC(now));
+        routesDirty = false; lastRoutesAt = now;
+      }
+    }
+    setTimeout(tick, tickInterval());
+  }
+
+  function ensureTicker() {
+    if (tickerRunning) return;
+    tickerRunning = true;
+    setTimeout(tick, 0);
+  }
+
+  document.addEventListener('visibilitychange', () => { if (!document.hidden) { featuresDirty = true; ensureTicker(); } });
+  whenMapReady(() => { applyLiveVisibility(); applyRoutesVisibility(); featuresDirty = true; ensureTicker(); });
 
   // удаление цели на index.html (в режиме "удалить объект") пишет сюда ключ —
   // убираем соответствующий маркер и на карте ПУ
   db.ref('targetDeletes').on('child_added', function(snapshot) {
-    console.log('[SYNC] получено событие удаления, ключ =', snapshot.key, 'есть в liveMarkers:', !!liveMarkers[snapshot.key]);
+    console.log('[SYNC] получено событие удаления, ключ =', snapshot.key, 'есть среди живых:', live.has(snapshot.key));
     removeLiveTarget(snapshot.key);
   });
 
+  /* ---- 📡 публикация точных позиций целей для index.html (раз в 5 с) ----
+     Позиция считается от времени запуска (positionAt) — это эталон. index.html подтягивает
+     к ней внутреннюю позицию/номер вайпоинта/скорость/высоту каждой цели; визуальный цикл
+     обновления на карте index.html остаётся прежним. Один multi-path update на все цели.
+     Таймер — в Web Worker, чтобы его не душили при свёрнутой вкладке. */
+  function publishLive() {
+    if (!live.size) return;
+    const now = srvNow();
+    const upd = {};
+    let n = 0;
+    for (const st of live.values()) {
+      if (st.liveFinalSent) continue;
+      const elapsedS = (now - st.launchAtMs) / 1000;
+      if (elapsedS < 0) continue; // ещё не запущена
+      const pos = positionAt(st.geo, elapsedS);
+      upd[st.key] = { lat: +pos.lat.toFixed(6), lng: +pos.lng.toFixed(6), seg: pos.seg, ts: now };
+      n++;
+      if (elapsedS >= st.geo.totalTimeS) st.liveFinalSent = true; // финальная точка отправлена
+    }
+    if (n) db.ref('live').update(upd).catch(() => {});
+  }
+  try {
+    const blob = new Blob(['setInterval(function(){postMessage(0)},5000)'], { type: 'application/javascript' });
+    const w = new Worker(URL.createObjectURL(blob));
+    w.onmessage = publishLive;
+  } catch (e) {
+    setInterval(publishLive, 5000);
+  }
+
+  function attachTargets() {
+  panelStartTime = srvNow();
   db.ref('targets').on('child_added', function(snapshot) {
     const t = snapshot.val();
     if (!t || !t.createdAt || t.createdAt < panelStartTime) return;
 
     const spawn = Array.isArray(t.spawn) ? [Number(t.spawn[0]), Number(t.spawn[1])] : null;
     if (!spawn || !isFinite(spawn[0]) || !isFinite(spawn[1])) return;
-    const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1]), Number(p[2]) || 0]) : [];
+    const route = Array.isArray(t.route) ? t.route.map(p => [Number(p[0]), Number(p[1]), Number(p[2]) || 0, Number(p[3]) || 0]) : [];
     const speed = Number(t.speed) || 0;
     const spawnDelayMs = Math.max(0, (Number(t.spawnDelay ?? t.delay) || 0) * 1000);
     const baseAt = Number(t.launchedAt) || t.createdAt;
@@ -1173,7 +1776,6 @@ renderQueue();
 
     if (Array.isArray(t.triggers) && t.triggers.length) {
       // 🎚️ время до вейпоинта считаем по сегментам с учётом переменной скорости
-      // (а не по одной постоянной скорости, как раньше)
       const routeGeo = buildGeo(spawn, route, speed);
 
       t.triggers.forEach(function(trig, ti) {
@@ -1192,6 +1794,13 @@ renderQueue();
       });
     }
   });
+  }
+
+  // подписываемся только когда известно серверное время (иначе фильтр panelStartTime считается по кривым часам)
+  let _attached = false;
+  const attachOnce = () => { if (_attached) return; _attached = true; attachTargets(); };
+  db.ref('.info/serverTimeOffset').on('value', () => attachOnce());
+  setTimeout(attachOnce, 3000);
 })();
 </script>
 </body>
