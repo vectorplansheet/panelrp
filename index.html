@@ -217,6 +217,20 @@
   .layers-ctrl input { margin-right:5px; vertical-align:middle; }
   .maplibregl-ctrl-top-left .maplibregl-ctrl { margin-bottom:6px; }
 
+  /* ---- линейка ---- */
+  .ruler-ctrl {
+    display:flex; align-items:center; gap:4px;
+    background: var(--frame-mid); border:1px solid var(--frame-edge); border-radius:3px;
+    padding:3px; box-shadow:0 1px 4px rgba(0,0,0,0.5);
+  }
+  .ruler-ctrl button { padding:5px 9px; font-size:13px; }
+  .ruler-ctrl button.on { outline:2px solid #4fd1ff; outline-offset:-2px; }
+  .ruler-ctrl .ruler-out {
+    font-size:11px; color:#eef1e2; padding:0 6px; white-space:nowrap;
+    font-variant-numeric: tabular-nums; min-width:70px;
+  }
+  .ruler-ctrl .ruler-out.dim { color: var(--text-dim); }
+
   #btnPickOnMap { flex:0 0 auto; padding:5px 9px; font-size:13px; }
   #btnPickOnMap.picking { outline:2px solid #ffcf3d; outline-offset:-2px; }
   #plannedTableBody tr { cursor:pointer; }
@@ -485,7 +499,8 @@ const mapStyle = {
     planned: { type: 'geojson', data: EMPTY_FC() },
     live:    { type: 'geojson', data: EMPTY_FC() },
     routes:  { type: 'geojson', data: EMPTY_FC() },
-    search:  { type: 'geojson', data: EMPTY_FC() }
+    search:  { type: 'geojson', data: EMPTY_FC() },
+    ruler:   { type: 'geojson', data: EMPTY_FC() }
   },
   layers: [
     { id: 'bg',      type: 'background', paint: { 'background-color': '#0e1a12' } },
@@ -504,6 +519,14 @@ const mapStyle = {
       layout: sym({ 'icon-image': 'pin-queue', 'icon-anchor': 'bottom' }) },
     { id: 'draft-pins', type: 'symbol', source: 'draft', filter: ['==', ['geometry-type'], 'Point'],
       layout: sym({ 'icon-image': ['get', 'pin'], 'icon-anchor': 'bottom' }) },
+
+    { id: 'draft-labels', type: 'symbol', source: 'draft', filter: ['has', 'label'],
+      layout: sym({
+        'text-field': ['get', 'label'], 'text-font': ['Noto Sans Medium'], 'text-size': 10.5,
+        'text-anchor': 'top', 'text-offset': [0, 0.5], 'text-justify': 'center', 'text-max-width': 40,
+        'icon-image': 'label-bg-black', 'icon-text-fit': 'both', 'icon-text-fit-padding': [1, 5, 1, 5]
+      }),
+      paint: { 'text-color': '#ffe3a8' } },
 
     { id: 'planned-pins', type: 'symbol', source: 'planned',
       layout: sym({ 'icon-image': 'pin-planned', 'icon-anchor': 'bottom' }) },
@@ -545,7 +568,20 @@ const mapStyle = {
       paint: { 'text-color': '#0e0e0e' } },
 
     { id: 'search-pt', type: 'circle', source: 'search',
-      paint: { 'circle-radius': 8, 'circle-color': '#ffcf3d', 'circle-stroke-width': 2, 'circle-stroke-color': '#10190f' } }
+      paint: { 'circle-radius': 8, 'circle-color': '#ffcf3d', 'circle-stroke-width': 2, 'circle-stroke-color': '#10190f' } },
+
+    { id: 'ruler-line', type: 'line', source: 'ruler', filter: ['==', ['geometry-type'], 'LineString'],
+      layout: { 'line-join': 'round', 'line-cap': 'round' },
+      paint: { 'line-color': '#4fd1ff', 'line-width': 2.5, 'line-dasharray': [2, 1.5] } },
+    { id: 'ruler-pts', type: 'circle', source: 'ruler', filter: ['==', ['geometry-type'], 'Point'],
+      paint: { 'circle-radius': 4.5, 'circle-color': '#ffffff', 'circle-stroke-width': 2, 'circle-stroke-color': '#0b6d8f' } },
+    { id: 'ruler-labels', type: 'symbol', source: 'ruler', filter: ['!=', ['get', 'label'], ''],
+      layout: sym({
+        'text-field': ['get', 'label'], 'text-font': ['Noto Sans Medium'], 'text-size': 11,
+        'text-anchor': 'top', 'text-offset': [0, 0.8], 'text-justify': 'center', 'text-max-width': 40,
+        'icon-image': 'label-bg-black', 'icon-text-fit': 'both', 'icon-text-fit-padding': [1, 5, 1, 5]
+      }),
+      paint: { 'text-color': '#bfefff' } }
   ]
 };
 
@@ -683,6 +719,63 @@ class CoordSearchControl {
   onRemove() { this._el.remove(); }
 }
 map.addControl(new CoordSearchControl(), 'top-left');
+
+/* ---- линейка: клики по карте строят ломаную, показывают расстояние до каждой точки и общее ---- */
+const ruler = { on: false, pts: [] };   // pts: [{lat, lng}]
+function fmtRuler(m) {
+  return m < 1000 ? Math.round(m) + ' м' : (m / 1000).toFixed(m >= 100000 ? 0 : 2) + ' км';
+}
+function renderRuler() {
+  const feats = [];
+  let total = 0;
+  if (ruler.pts.length > 1) feats.push(lineFeature(ruler.pts.map(p => [p.lng, p.lat])));
+  ruler.pts.forEach((p, i) => {
+    if (i > 0) total += distM(ruler.pts[i - 1], p);
+    feats.push(ptFeature(p.lng, p.lat, { label: i > 0 ? fmtRuler(total) : '' }));
+  });
+  setSrc('ruler', { type: 'FeatureCollection', features: feats });
+  const out = document.getElementById('rulerOut');
+  if (out) {
+    out.textContent = ruler.pts.length > 1 ? 'Σ ' + fmtRuler(total) : (ruler.on ? 'клик по карте' : '—');
+    out.classList.toggle('dim', ruler.pts.length < 2);
+  }
+}
+function setRuler(on) {
+  ruler.on = on;
+  const btn = document.getElementById('rulerToggle');
+  if (btn) btn.classList.toggle('on', on);
+  map.getCanvasContainer().style.cursor = on ? 'crosshair' : '';
+  renderRuler();
+}
+function clearRuler() { ruler.pts = []; renderRuler(); }
+// возвращает true, если клик забрала линейка (маршрут при этом не строится)
+window.handleRulerClick = (e) => {
+  if (!ruler.on) return false;
+  ruler.pts.push({ lat: e.lngLat.lat, lng: e.lngLat.lng });
+  renderRuler();
+  return true;
+};
+class RulerControl {
+  onAdd() {
+    const wrap = document.createElement('div');
+    wrap.className = 'maplibregl-ctrl ruler-ctrl';
+    wrap.innerHTML = `
+      <button type="button" id="rulerToggle" title="Линейка: клики по карте — измерение расстояния (Esc — выйти)">📏</button>
+      <button type="button" id="rulerUndo" title="Убрать последнюю точку">↩</button>
+      <button type="button" id="rulerClear" title="Очистить линейку">✕</button>
+      <span class="ruler-out dim" id="rulerOut">—</span>`;
+    wrap.querySelector('#rulerToggle').addEventListener('click', () => setRuler(!ruler.on));
+    wrap.querySelector('#rulerUndo').addEventListener('click', () => { ruler.pts.pop(); renderRuler(); });
+    wrap.querySelector('#rulerClear').addEventListener('click', clearRuler);
+    this._el = wrap;
+    return wrap;
+  }
+  onRemove() { this._el.remove(); }
+}
+map.addControl(new RulerControl(), 'top-left');
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && ruler.on) { setRuler(false); clearRuler(); }
+});
 
 function parseCoordString(str) {
   if (!str) return null;
@@ -830,9 +923,9 @@ function renderDraftMap() {
   if (spawnPoint) {
     const full = [[spawnPoint[1], spawnPoint[0]], ...routePoints.map(p => [p[1], p[0]])];
     if (full.length > 1) features.push(lineFeature(full));
-    features.push(ptFeature(spawnPoint[1], spawnPoint[0], { pin: 'pin-start' }));
+    features.push(ptFeature(spawnPoint[1], spawnPoint[0], { pin: 'pin-start', label: 'Point 0' }));
   }
-  routePoints.forEach(p => features.push(ptFeature(p[1], p[0], { pin: 'pin-route' })));
+  routePoints.forEach((p, i) => features.push(ptFeature(p[1], p[0], { pin: 'pin-route', label: 'Point ' + (i + 1) })));
   setSrc('draft', { type: 'FeatureCollection', features });
 }
 
@@ -882,6 +975,8 @@ function redrawCurrent() {
 }
 
 map.on('click', (e) => {
+  // линейка забирает клик первой
+  if (window.handleRulerClick(e)) return;
   // режим "указать точку кликом" для плановых целей (см. секцию ниже) забирает клик себе
   if (typeof window.handlePlannedMapClick === 'function' && window.handlePlannedMapClick(e)) return;
   const latlng = [e.lngLat.lat, e.lngLat.lng];
