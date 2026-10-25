@@ -572,14 +572,6 @@ const mapStyle = {
     { id: 'draft-pins', type: 'symbol', source: 'draft', filter: ['==', ['geometry-type'], 'Point'],
       layout: sym({ 'icon-image': ['get', 'pin'], 'icon-anchor': 'bottom' }) },
 
-    { id: 'draft-labels', type: 'symbol', source: 'draft', filter: ['has', 'label'],
-      layout: sym({
-        'text-field': ['get', 'label'], 'text-font': ['Noto Sans Medium'], 'text-size': 10.5,
-        'text-anchor': 'top', 'text-offset': [0, 0.5], 'text-justify': 'center', 'text-max-width': 40,
-        'icon-image': 'label-bg-pill', 'icon-text-fit': 'both', 'icon-text-fit-padding': [2, 7, 2, 7]
-      }),
-      paint: { 'text-color': '#ffe3a8' } },
-
     { id: 'planned-pins', type: 'symbol', source: 'planned',
       layout: sym({ 'icon-image': 'pin-planned', 'icon-anchor': 'bottom' }) },
     { id: 'planned-labels', type: 'symbol', source: 'planned', filter: ['!=', ['get', 'label'], ''],
@@ -1851,11 +1843,11 @@ renderStats();
   function spawnLiveTarget(key, spawn, route, speedKmh, launchAtMs, type, iconFile) {
     if (live.has(key)) return;
     const geo = buildGeo(spawn, route, speedKmh);
-    const firstLine = iconFile ? buildFirstLine(type) : null; // подпись только у целей с шаблоном
+    const firstLine = iconFile ? buildFirstLine(type) : ''; // у целей без шаблона первой строки нет — только скорость и высота
     const startAlt = geo.segs[0] ? geo.segs[0].altM : 0;
 
     const props = { icon: iconFor(iconFile), heading: geo.segs[0] ? geo.segs[0].brng : 0 };
-    if (firstLine !== null) props.label = firstLine + '\n' + speedLineText(speedKmh, startAlt);
+    props.label = (firstLine ? firstLine + '\n' : '') + speedLineText(speedKmh, startAlt);
     const feature = ptFeature(spawn[1], spawn[0], props);
 
     const state = {
@@ -1896,11 +1888,11 @@ renderStats();
     c[0] = pos.lng; c[1] = pos.lat;
     p.heading = pos.heading;
     p.icon = iconFor(state.iconFile);
-    if (state.firstLine !== null) {
+    {
       const sp = Math.round(pos.speedKmh || 0), al = Math.round(pos.altM || 0);
       const k = sp + '|' + al;
       if (k !== state.lastKey) { // строку собираем только когда скорость/высота реально поменялись
-        p.label = state.firstLine + '\n' + speedLineText(sp, al);
+        p.label = (state.firstLine ? state.firstLine + '\n' : '') + speedLineText(sp, al);
         state.lastKey = k;
       }
     }
