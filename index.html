@@ -344,10 +344,12 @@
 
         <div class="template-row" id="targetTemplates">
           <button type="button" class="template-btn" data-min="150" data-max="170" data-type="Гербера" data-icon="Gerbera.png">Гербера<span class="tpl-range">150–170 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="170" data-max="180" data-type="Гербера-2" data-icon="Gerbera-2.png">Гербера-2<span class="tpl-range">170–180 км/ч</span></button>
           <button type="button" class="template-btn" data-min="180" data-max="200" data-type="Герань-2" data-icon="Geran-2.png">Герань-2<span class="tpl-range">180–200 км/ч</span></button>
           <button type="button" class="template-btn" data-min="300" data-max="370" data-type="Герань-3" data-icon="Geran-3.png">Герань-3<span class="tpl-range">300–370 км/ч</span></button>
-          <button type="button" class="template-btn" data-min="400" data-max="430" data-type="Герань-4" data-icon="Geran-4.png">Герань-4<span class="tpl-range">400–430 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="450" data-max="470" data-type="Герань-4" data-icon="Geran-4.png">Герань-4<span class="tpl-range">450–470 км/ч</span></button>
           <button type="button" class="template-btn" data-min="500" data-max="550" data-type="Герань-5" data-icon="Geran-5.png">Герань-5<span class="tpl-range">500–550 км/ч</span></button>
+          <button type="button" class="template-btn" data-min="500" data-max="570" data-type="Герань-5 К5-К" data-icon="Geran-5 K5-K.png">Герань-5 К5-К<span class="tpl-range">500–570 км/ч</span></button>
           <button type="button" class="template-btn" data-min="5500" data-max="6000" data-type="Искандер-М" data-icon="Искандер-М.png">Искандер-М<span class="tpl-range">5500–6000 км/ч</span></button>
           <button type="button" class="template-btn" data-min="950" data-max="950" data-type="Х-101" data-icon="Х-101.png">Х-101<span class="tpl-range">950 км/ч</span></button>
           <button type="button" class="template-btn" data-min="600" data-max="700" data-type="Бандероль" data-icon="Бандероль.png">Бандероль<span class="tpl-range">600–700 км/ч</span></button>
@@ -1300,7 +1302,7 @@ renderQueue();
    не попадают (см. registerLaunchedTargets, вызывается только из btnLaunchAll).
    Хранится только в памяти вкладки — при перезагрузке страницы обнуляется. */
 const STATS_CATEGORIES = [
-  { title: 'БпЛА', totalLabel: 'Всего БпЛА', types: ['Герань-2', 'Герань-3', 'Герань-4', 'Герань-5', 'Гербера'] },
+  { title: 'БпЛА', totalLabel: 'Всего БпЛА', types: ['Герань-2', 'Герань-3', 'Герань-4', 'Герань-5', 'Герань-5 К5-К', 'Гербера', 'Гербера-2'] },
   { title: 'Крылатые ракеты', totalLabel: 'Всего крылатых ракет', types: ['Х-101', 'Х-59', 'Бандероль', 'Калибр'] },
   { title: 'Баллистические и гиперзвуковые ракеты', totalLabel: 'Всего баллистических и гиперзвуковых ракет', types: ['Искандер-М', 'Циркон'] }
 ];
@@ -1725,8 +1727,10 @@ renderStats();
     'Герань-2': { prefix: 'Ы',  min: 90000, max: 97000 },
     'Герань-3': { prefix: 'У-',  min: 100,   max: 400   },
     'Герань-4': { prefix: 'Е-',  min: 2010,  max: 5000  },
-    'Гербера':  { prefix: 'ЫЫ', min: 80000, max: 90000 }
-    // у Герань-5 бортовой номер не пишется
+    'Гербера':  { prefix: 'ЫЫ', min: 86000, max: 92000 },
+    'Гербера-2': { prefix: 'ЫЫ', min: 100000, max: 107000 },
+    'Герань-5': { prefix: 'АНС-', min: 900,  max: 2500  },
+    'Герань-5 К5-К': { prefix: 'АНС-', min: 3000, max: 4000 }
   };
   const boardState = {}; // { [type]: { used:Set<number>, last:number|null } }
 
@@ -1757,10 +1761,12 @@ renderStats();
 
   const TYPE_CODE = {
     'Гербера':  'Г',
+    'Гербера-2': 'ГБ2',
     'Герань-2': 'Г2',
     'Герань-3': 'Г3',
     'Герань-4': 'Г4',
-    'Герань-5': 'Г5'
+    'Герань-5': 'Г5',
+    'Герань-5 К5-К': 'Г5К'
   };
 
   // строка скорости + текущая высота (если известна): "425 км/ч 4000 м"
@@ -1772,7 +1778,7 @@ renderStats();
   // первая строка подписи: "Г2,Ы-92312" (тип + борт). Генерируется один раз на цель.
   function buildFirstLine(type) {
     const code = TYPE_CODE[type] || type || '';
-    const board = type === 'Герань-5' ? null : generateBoardNumber(type);
+    const board = generateBoardNumber(type);
     return board ? `${code},${board}` : code;
   }
 
